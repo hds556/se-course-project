@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>在线购物系统</title><link rel="stylesheet" href="/style.css"></head>
+<body><main class="container">
+  <h1>在线购物系统</h1><section id="product"></section>
+  <section class="card"><h2>口令码管理</h2><form id="query"><input name="passcode" placeholder="输入 8 位口令码" required><button>查询</button></form><p id="queryResult"></p>
+    <form id="edit" hidden><input name="name" placeholder="姓名" required><input name="phone" placeholder="联系电话" required><button>保存修改</button><button type="button" id="cancel">撤销意向</button></form>
+  </section>
+  <p id="message" class="message"></p>
+</main><script src="/app.js"></script></body></html>
