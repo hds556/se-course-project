@@ -1,35 +1,65 @@
 # 在线购物系统 MVP
 
-实现依据 `se-course-project.wiki/Design.md`、`SRS.md` 和 `Requirements‐Analysis.md`。
+这是一个一次只展示一件商品的简易购物意向系统。买家无需注册即可提交意向并凭口令码查看进度；卖家登录后发布商品、按顺序处理交易。交易在线下完成，系统不处理支付或物流。
 
-## 环境与安装
+## 技术环境
 
-- Node.js 22（Node.js 18 以上也可运行）
-- npm（随 Node.js 安装）
-- 不需要数据库或其他外部服务
+- Python 3.12（本项目验证版本）
+- Flask：页面与 API 服务
+- Pillow：校验上传图片确实为 JPG 或 PNG
+- 前端：原生 HTML、CSS、JavaScript，无需前端构建工具
+- 数据：本地 `data.json` 与 `uploads/`，无需数据库
 
-在本目录执行：
+## 安装与运行
 
-```powershell
-npm install
-npm start
-```
-
-浏览器访问：
-
-- 买家端：http://localhost:3000/
-- 卖家后台：http://localhost:3000/admin.html
-
-首次启动会自动创建 `data.json` 和 `uploads/`。默认卖家账号为 `admin`，默认密码为 `admin1234`；首次启动前可通过环境变量 `DEFAULT_SELLER_PASSWORD` 指定初始密码。
-
-## 开发模式
+在项目根目录执行。Windows PowerShell：
 
 ```powershell
-npm run dev
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
 ```
 
-开发模式使用 Node.js 原生 watch，修改 `server.js` 后会自动重启。
+macOS / Linux：
+
+```sh
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python app.py
+```
+
+启动后访问：
+
+- 买家页面：<http://localhost:3000/>
+- 卖家后台：<http://localhost:3000/admin.html>
+
+默认卖家账号为 `admin`，初始密码为 `admin1234`。首次启动前可设置环境变量 `DEFAULT_SELLER_PASSWORD` 更换初始密码；首次登录后也可在后台修改密码。服务默认仅监听本机 `127.0.0.1:3000`，可通过 `HOST`、`PORT` 环境变量调整。
+
+首次启动会创建 `data.json` 和 `uploads/`。已有 Node.js 版本的 `data.json` 沿用相同数据结构，迁移时请保留该文件及 `uploads/` 中的商品图片。
+如果旧版 Node 服务仍在运行，先停止它，避免占用 3000 端口。
 
 ## 业务流程
 
-买家提交意向后获得一次性口令码；卖家从队首开始交易，可标记成功，或选择作废/重新排队。交易失败时会自动递补下一位；队列为空时商品恢复在售。所有状态和口令码写入 `data.json`，图片写入 `uploads/`。
+1. 卖家发布商品；系统同一时间只允许一件未售出商品。
+2. 买家填写姓名和电话提交购买意向，获得仅展示一次的 8 位口令码。相同联系方式的多次提交仍是独立意向。
+3. 卖家从队首开始交易，商品随之暂停接收新意向。交易失败时可将当前意向作废或重新排到队尾；系统自动递补下一位。队列为空时，商品恢复在售。
+4. 买家可凭口令码查询排队进度、修改联系信息或撤销意向。若交易中的买家撤销，卖家需在后台确认处理，系统再递补下一位。
+5. 交易成功后商品进入历史记录，其余未成交意向结案，全部相关口令码失效。
+
+所有数据写入本地文件，重启后保留。上传图片限一张 JPG/PNG，大小不超过 5 MB。
+
+## 测试
+
+Windows PowerShell：
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+macOS / Linux：
+
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+测试使用临时目录，不会修改项目中的 `data.json` 或 `uploads/`。

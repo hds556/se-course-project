@@ -1,10 +1,80 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>在线购物系统</title><link rel="stylesheet" href="/style.css"></head>
-<body><main class="container">
-  <h1>在线购物系统</h1><section id="product"></section>
-  <section class="card"><h2>口令码管理</h2><form id="query"><input name="passcode" placeholder="输入 8 位口令码" required><button>查询</button></form><p id="queryResult"></p>
-    <form id="edit" hidden><input name="name" placeholder="姓名" required><input name="phone" placeholder="联系电话" required><button>保存修改</button><button type="button" id="cancel">撤销意向</button></form>
-  </section>
-  <p id="message" class="message"></p>
-</main><script src="/app.js"></script></body></html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f5ef">
+  <meta name="description" content="每次分享一件好物，留下心意，慢慢相遇。">
+  <title>慢慢好物 · 一件一件认真分享</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="shop-page">
+  <header class="site-header">
+    <div class="page-shell header-inner">
+      <a class="brand" href="/" aria-label="慢慢好物首页">
+        <span class="brand-mark" aria-hidden="true">✳</span>
+        <span class="brand-name">慢慢好物<small>ONE GOOD THING AT A TIME</small></span>
+      </a>
+      <a class="header-link" href="/admin.html">卖家入口 <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section class="hero" aria-labelledby="welcome-title">
+      <div>
+        <p class="eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> 一件一件，认真分享</p>
+        <h1 id="welcome-title">喜欢的东西，<br><em>慢慢挑。</em></h1>
+        <p class="hero-copy">这里每次只展示一件好物。遇到心动的，留下购买意向，我们会依次联系你。</p>
+      </div>
+      <div class="hero-note" aria-hidden="true"><span>01</span><span class="hero-note-line"></span><span>每次一件好物</span></div>
+    </section>
+
+    <section id="product" aria-label="当前商品">
+      <div class="card loading-card">正在准备这件好物…</div>
+    </section>
+
+    <section id="passcodeCard" class="card code-card" aria-labelledby="code-title" tabindex="-1" hidden>
+      <div class="code-icon" aria-hidden="true">✳</div>
+      <div>
+        <p class="eyebrow">意向已收到</p>
+        <h2 id="code-title">这是你的专属口令码</h2>
+        <p>请现在保存好它。口令码只会展示一次，之后可用来查看排队进度或修改信息。</p>
+        <div id="passcodeValue" class="code" aria-label="口令码"></div>
+      </div>
+    </section>
+
+    <section class="card manage-card" aria-labelledby="manage-title">
+      <div class="manage-intro">
+        <div>
+          <p class="eyebrow">已经留下意向？</p>
+          <h2 id="manage-title">看看进展如何</h2>
+          <p class="muted">输入保存的 8 位口令码，查看排队进度，也可以修改姓名、电话或撤销意向。</p>
+        </div>
+        <span class="manage-decoration" aria-hidden="true">↗</span>
+      </div>
+      <form id="query" class="query-form">
+        <label class="field" for="query-passcode"><span class="field-label">口令码</span>
+          <input id="query-passcode" name="passcode" placeholder="请输入 8 位口令码" maxlength="8" autocomplete="off" autocapitalize="characters" required>
+        </label>
+        <button class="button" type="submit">查询进度 <span aria-hidden="true">→</span></button>
+      </form>
+      <p id="queryResult" class="query-result" aria-live="polite"></p>
+      <form id="edit" class="edit-form" hidden>
+        <div class="edit-form-heading">
+          <h3>更新联系信息</h3>
+          <p class="muted">修改时请填写更新后的姓名和联系电话。</p>
+        </div>
+        <div class="form-grid">
+          <label class="field" for="edit-name"><span class="field-label">姓名</span><input id="edit-name" name="name" placeholder="你的姓名" autocomplete="name" required></label>
+          <label class="field" for="edit-phone"><span class="field-label">联系电话</span><input id="edit-phone" name="phone" type="tel" placeholder="方便联系你的电话" autocomplete="tel" required></label>
+        </div>
+        <div class="form-actions"><button class="button button-secondary" type="submit">保存修改</button><button class="button button-quiet" type="button" id="cancel">撤销意向</button></div>
+      </form>
+    </section>
+    <p id="message" class="message" role="alert"></p>
+  </main>
+
+  <footer class="site-footer"><div class="page-shell footer-inner"><span>慢慢好物</span><span>愿每次相遇，都刚刚好。</span></div></footer>
+  <script src="/app.js"></script>
+</body>
+</html>

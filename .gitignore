@@ -1,6 +1,11 @@
 node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
 data.json
 data.json.tmp
+.data.json.*.tmp
 uploads/*
 !uploads/.gitkeep
 cookies.txt
