@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f5ef">
+  <meta name="description" content="慢慢好物卖家工作台，妥帖管理每件好物与每份购买意向。">
+  <title>卖家工作台 · 慢慢好物</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="admin-page">
+  <header class="site-header">
+    <div class="page-shell header-inner">
+      <a class="brand" href="/" aria-label="慢慢好物首页">
+        <span class="brand-mark" aria-hidden="true">✳</span>
+        <span class="brand-name">慢慢好物<small>ONE GOOD THING AT A TIME</small></span>
+      </a>
+      <a class="header-link" href="/">返回店铺 <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section class="hero admin-hero" aria-labelledby="admin-title">
+      <div>
+        <p class="eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> 卖家工作台</p>
+        <h1 id="admin-title">好物有序，<br><em>心意有回应。</em></h1>
+        <p class="hero-copy">在这里照看当前商品，依次回应每一份购买意向。</p>
+      </div>
+    </section>
+    <p id="message" class="message" role="status"></p>
+
+    <section id="login" class="card admin-login-card" aria-labelledby="login-title">
+      <div class="admin-login-intro">
+        <p class="eyebrow">欢迎回来</p>
+        <h2 id="login-title">登录后继续打理店铺</h2>
+        <p class="muted">输入卖家账号和密码，即可查看商品与意向。</p>
+      </div>
+      <form id="loginForm" class="stack-form">
+        <label class="field" for="login-username"><span class="field-label">账号</span>
+          <input id="login-username" name="username" value="admin" autocomplete="username" required>
+        </label>
+        <label class="field" for="login-password"><span class="field-label">密码</span>
+          <input id="login-password" name="password" type="password" placeholder="请输入密码" autocomplete="current-password" required>
+        </label>
+        <button class="button" type="submit">进入工作台 <span aria-hidden="true">→</span></button>
+      </form>
+    </section>
+
+    <div id="dashboard" hidden>
+      <div class="admin-layout">
+        <div class="admin-primary">
+          <section id="current" class="card admin-current" aria-label="当前商品" aria-live="polite"></section>
+
+          <section id="sellerPasscodeCard" class="card seller-code-card" aria-labelledby="seller-code-title" tabindex="-1" hidden>
+            <p class="admin-kicker">请及时告知买家</p>
+            <h2 id="seller-code-title">重新排队的新口令码</h2>
+            <p class="muted">旧口令码已失效。请将这个新口令码在线下告知买家，供其查询或管理意向。</p>
+            <output id="sellerPasscodeValue" class="code"></output>
+            <button id="dismissSellerPasscode" class="button button-quiet" type="button">已告知买家，收起口令码</button>
+          </section>
+
+          <section class="card" aria-labelledby="intents-title">
+            <div class="admin-section-head">
+              <div><p class="admin-kicker">依次联系</p><h2 id="intents-title">购买意向</h2></div>
+              <p class="muted">按提交顺序排列</p>
+            </div>
+            <div id="intents" aria-live="polite"></div>
+          </section>
+
+          <section class="card" aria-labelledby="history-title">
+            <div class="admin-section-head">
+              <div><p class="admin-kicker">已完成的分享</p><h2 id="history-title">历史商品</h2></div>
+            </div>
+            <div id="history"></div>
+          </section>
+        </div>
+
+        <div class="admin-sidebar">
+          <section class="card" aria-labelledby="publish-title">
+            <div class="admin-section-head">
+              <div><p class="admin-kicker">下一件好物</p><h2 id="publish-title">发布商品</h2></div>
+            </div>
+            <p id="publishNotice" class="muted" hidden>当前已有一件商品。交易完成后，就可以发布下一件。</p>
+            <form id="publish" class="stack-form" enctype="multipart/form-data">
+              <label class="field" for="publish-name"><span class="field-label">商品名称</span>
+                <input id="publish-name" name="name" placeholder="给这件好物起个名字" required>
+              </label>
+              <label class="field" for="publish-description"><span class="field-label">商品描述</span>
+                <textarea id="publish-description" name="description" placeholder="说说它的特点与细节" required></textarea>
+              </label>
+              <label class="field" for="publish-price"><span class="field-label">价格 · 元</span>
+                <input id="publish-price" name="price" inputmode="decimal" placeholder="例如 88.00" required>
+              </label>
+              <label class="field" for="publish-image"><span class="field-label">商品图片</span>
+                <input id="publish-image" name="image" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" aria-describedby="publish-image-hint" required>
+                <span id="publish-image-hint" class="hint">支持 JPG、PNG，大小不超过 5 MB。</span>
+              </label>
+              <button class="button" type="submit">发布这件好物 <span aria-hidden="true">→</span></button>
+            </form>
+          </section>
+
+          <section class="card" aria-labelledby="password-title">
+            <div class="admin-section-head">
+              <div><p class="admin-kicker">账户安全</p><h2 id="password-title">修改密码</h2></div>
+            </div>
+            <form id="password" class="stack-form">
+              <label class="field" for="old-password"><span class="field-label">当前密码</span>
+                <input id="old-password" name="oldPassword" type="password" autocomplete="current-password" required>
+              </label>
+              <label class="field" for="new-password"><span class="field-label">新密码</span>
+                <input id="new-password" name="newPassword" type="password" autocomplete="new-password" aria-describedby="new-password-hint" required>
+                <span id="new-password-hint" class="hint">至少 8 位，包含字母和数字。</span>
+              </label>
+              <button class="button button-secondary" type="submit">保存新密码</button>
+            </form>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer"><div class="page-shell footer-inner"><span>慢慢好物</span><span>愿每次相遇，都刚刚好。</span></div></footer>
+  <script src="/admin.js"></script>
+</body>
+</html>
