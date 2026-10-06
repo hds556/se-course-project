@@ -170,6 +170,58 @@ def start_next_trade(state: dict, product: dict) -> dict | None:
     return next_intent
 
 
+def transition(state: dict, product: dict, event: str, payload: dict | None = None) -> dict | None:
+    """Apply a validated product/intent state transition."""
+    payload = payload or {}
+    if event == "FREEZE":
+        product["status"] = "frozen"
+        product["tradingIntentId"] = None
+        product["frozenAt"] = utc_now()
+        return None
+    if event == "UNFREEZE":
+        product["status"] = "active"
+        return None
+    if event == "START_TRADE":
+        return start_next_trade(state, product)
+    if event == "MARK_SUCCESS":
+        buyer = payload["intent"]
+        buyer["stage"] = "closed"
+        buyer["outcome"] = "success"
+        for intent in state["intents"]:
+            if intent["productId"] == product["id"] and intent["stage"] != "closed":
+                intent["stage"] = "closed"
+                intent["outcome"] = "unsold"
+        product["status"] = "sold"
+        product["result"] = "success"
+        product["resultAt"] = utc_now()
+        product["tradingIntentId"] = None
+        return None
+    if event == "MARK_FAIL":
+        buyer = payload["intent"]
+        disposition = payload["disposition"]
+        buyer["stage"] = "closed"
+        if disposition == "requeue":
+            buyer["outcome"] = "requeued"
+            replacement = {
+                "id": state["nextIntentId"], "productId": product["id"],
+                "name": buyer["name"], "phone": buyer["phone"],
+                "passcode": new_passcode(state), "submittedAt": utc_now(),
+                "stage": "queued", "outcome": None,
+            }
+            state["nextIntentId"] += 1
+            state["intents"].append(replacement)
+            payload["newPasscode"] = replacement["passcode"]
+        else:
+            buyer["outcome"] = "voided"
+        product["resultAt"] = utc_now()
+        product["tradingIntentId"] = None
+        return start_next_trade(state, product)
+    if event == "ADVANCE_CANCELLED":
+        product["tradingIntentId"] = None
+        return start_next_trade(state, product)
+    raise ValueError(f"Unsupported transition event: {event}")
+
+
 def json_body() -> dict:
     body = request.get_json(silent=True)
     return body if isinstance(body, dict) else {}
@@ -416,9 +468,7 @@ def create_app(data_file: str | Path | None = None, upload_dir: str | Path | Non
                 return api_error(409, "当前商品不能手动冻结")
             draft = copy.deepcopy(db)
             item = current_product(draft)
-            item["status"] = "frozen"
-            item["tradingIntentId"] = None
-            item["frozenAt"] = utc_now()
+            transition(draft, item, "FREEZE")
             commit(draft)
             return jsonify({"ok": True})
 
@@ -429,7 +479,7 @@ def create_app(data_file: str | Path | None = None, upload_dir: str | Path | Non
             if product is None or product["status"] != "frozen" or product["tradingIntentId"] is not None:
                 return api_error(409, "当前商品不能手动解冻")
             draft = copy.deepcopy(db)
-            current_product(draft)["status"] = "active"
+            transition(draft, current_product(draft), "UNFREEZE")
             commit(draft)
             return jsonify({"ok": True})
 
@@ -442,7 +492,7 @@ def create_app(data_file: str | Path | None = None, upload_dir: str | Path | Non
             if not current_queue(db, product["id"]):
                 return api_error(409, "当前没有排队中的购买意向")
             draft = copy.deepcopy(db)
-            trading = start_next_trade(draft, current_product(draft))
+            trading = transition(draft, current_product(draft), "START_TRADE")
             commit(draft)
             return jsonify({"intentId": trading["id"], "name": trading["name"], "phone": trading["phone"]})
 
@@ -456,16 +506,7 @@ def create_app(data_file: str | Path | None = None, upload_dir: str | Path | Non
             draft = copy.deepcopy(db)
             item = current_product(draft)
             buyer = next(intent for intent in draft["intents"] if intent["id"] == trading["id"])
-            buyer["stage"] = "closed"
-            buyer["outcome"] = "success"
-            for intent in draft["intents"]:
-                if intent["productId"] == item["id"] and intent["stage"] != "closed":
-                    intent["stage"] = "closed"
-                    intent["outcome"] = "unsold"
-            item["status"] = "sold"
-            item["result"] = "success"
-            item["resultAt"] = utc_now()
-            item["tradingIntentId"] = None
+            transition(draft, item, "MARK_SUCCESS", {"intent": buyer})
             commit(draft)
             return jsonify({"ok": True})
 
@@ -483,26 +524,11 @@ def create_app(data_file: str | Path | None = None, upload_dir: str | Path | Non
             draft = copy.deepcopy(db)
             item = current_product(draft)
             buyer = next(intent for intent in draft["intents"] if intent["id"] == trading["id"])
-            buyer["stage"] = "closed"
-            new_code = None
-            if disposition == "requeue":
-                buyer["outcome"] = "requeued"
-                replacement = {
-                    "id": draft["nextIntentId"], "productId": item["id"],
-                    "name": buyer["name"], "phone": buyer["phone"],
-                    "passcode": new_passcode(draft), "submittedAt": utc_now(),
-                    "stage": "queued", "outcome": None,
-                }
-                draft["nextIntentId"] += 1
-                draft["intents"].append(replacement)
-                new_code = replacement["passcode"]
-            else:
-                buyer["outcome"] = "voided"
-            item["resultAt"] = utc_now()
-            item["tradingIntentId"] = None
-            next_intent = start_next_trade(draft, item)
+            transition_payload = {"intent": buyer, "disposition": disposition}
+            next_intent = transition(draft, item, "MARK_FAIL", transition_payload)
             commit(draft)
-            return jsonify({"ok": True, "newPasscode": new_code, "nextIntentId": next_intent["id"] if next_intent else None})
+            return jsonify({"ok": True, "newPasscode": transition_payload.get("newPasscode"),
+                            "nextIntentId": next_intent["id"] if next_intent else None})
 
     @app.post("/api/admin/trade/advance")
     def advance_cancelled_trade():
@@ -515,8 +541,7 @@ def create_app(data_file: str | Path | None = None, upload_dir: str | Path | Non
                 return api_error(409, "当前没有待递补的已撤销交易意向")
             draft = copy.deepcopy(db)
             item = current_product(draft)
-            item["tradingIntentId"] = None
-            next_intent = start_next_trade(draft, item)
+            next_intent = transition(draft, item, "ADVANCE_CANCELLED")
             commit(draft)
             return jsonify({"ok": True, "nextIntentId": next_intent["id"] if next_intent else None})
 
