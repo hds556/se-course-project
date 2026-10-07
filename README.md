@@ -40,8 +40,7 @@ python3.12 -m venv .venv
 
 默认卖家账号为 `admin`，初始密码为 `admin1234`。首次启动前可设置环境变量 `DEFAULT_SELLER_PASSWORD` 更换初始密码；首次登录后也可在后台修改密码。服务默认仅监听本机 `127.0.0.1:3000`，可通过 `HOST`、`PORT` 环境变量调整。
 
-首次启动会创建 `data.json` 和 `uploads/`。已有 Node.js 版本的 `data.json` 沿用相同数据结构，迁移时请保留该文件及 `uploads/` 中的商品图片。
-如果旧版 Node 服务仍在运行，先停止它，避免占用 3000 端口。
+首次启动会创建 `data.json` 和 `uploads/`。
 
 ## 业务流程
 
