@@ -54,18 +54,3 @@ python3.12 -m venv .venv
 所有数据写入本地文件，重启后保留。上传图片限一张 JPG/PNG，大小不超过 5 MB。
 商品价格必须大于 0、最多两位小数，最高为 `90071992547409.91` 元（以分保存时不超过 JavaScript 安全整数上限）。超长或超出范围的价格会返回 HTTP 400 JSON 错误，不会保存商品或图片。
 
-## 测试
-
-Windows PowerShell：
-
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
-macOS / Linux：
-
-```sh
-.venv/bin/python -m unittest discover -s tests -v
-```
-
-测试使用临时目录，不会修改项目中的 `data.json` 或 `uploads/`。
