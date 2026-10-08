@@ -1,0 +1,5 @@
+target/
+uploads/*
+!.gitkeep
+.idea/
+*.iml

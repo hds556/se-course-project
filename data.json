@@ -1,0 +1,11 @@
+{
+  "seller": {
+    "username": "admin",
+    "passwordHash": "scrypt:f76382a803411220db8eb991f169923c:81413460015cad0fe51a15f91fc2f90b397c1a80287504e89ccbab9020c59766005461031606533a3f63787c983f2309a87ffc478d805919241f8fbd5efe8ef6",
+    "passwordChangedAt": null
+  },
+  "products": [],
+  "intents": [],
+  "nextProductId": 1,
+  "nextIntentId": 1
+}

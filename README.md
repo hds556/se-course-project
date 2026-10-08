@@ -2,16 +2,15 @@
 
 这是一个一次只展示一件商品的简易购物意向系统。买家无需注册即可提交意向并凭口令码查看进度；卖家登录后发布商品、按顺序处理交易。交易在线下完成，系统不处理支付或物流。
 
-## rebuild_v3 修复版
+## Java 重构版
 
-本版修复 DEF-001：发布商品时，超长或超出支持范围的价格会返回 HTTP 400 JSON 错误，商品和图片均不会被保存。项目内回归测试共 11 项通过，完整外部测试共 65 项通过。
-缺陷复现、原因、修复与回归过程见 [DEF-001 缺陷迭代记录](docs/testing/DEF-001-iteration.md)。
+后端已重构为 Java 17 + Spring Boot，保留原有前端页面、CSS 样式、JavaScript 逻辑、`/api/*` 接口路径和 JSON 响应结构。数据仍使用本地 `data.json` 与 `uploads/`，原有数据可以继续使用。
 
 ## 技术环境
 
-- Python 3.12（本项目验证版本）
-- Flask：页面与 API 服务
-- Pillow：校验上传图片确实为 JPG 或 PNG
+- Java 17
+- Spring Boot 3.4
+- Maven
 - 前端：原生 HTML、CSS、JavaScript，无需前端构建工具
 - 数据：本地 `data.json` 与 `uploads/`，无需数据库
 
@@ -20,18 +19,17 @@
 在项目根目录执行。Windows PowerShell：
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe app.py
+mvn clean package
+java -jar target\shopping-system-1.0.0.jar
 ```
 
-macOS / Linux：
+开发时可以使用：
 
-```sh
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python app.py
+```powershell
+mvn spring-boot:run
 ```
+
+开发模式下，修改 `public/` 里的 HTML、CSS、JavaScript 后刷新浏览器即可；修改 Java 后需要让 IDE 重新编译并由 Spring Boot DevTools 自动重启，或者手动停止后再次执行 `mvn spring-boot:run`。只有需要生成可提交或部署的 `jar` 时，才执行 `mvn clean package`。
 
 启动后访问：
 
@@ -40,7 +38,7 @@ python3.12 -m venv .venv
 
 默认卖家账号为 `admin`，初始密码为 `admin1234`。首次启动前可设置环境变量 `DEFAULT_SELLER_PASSWORD` 更换初始密码；首次登录后也可在后台修改密码。服务默认仅监听本机 `127.0.0.1:3000`，可通过 `HOST`、`PORT` 环境变量调整。
 
-首次启动会创建 `data.json` 和 `uploads/`。
+首次启动会创建 `data.json` 和 `uploads/`。可通过 `HOST`、`PORT`、`SHOP_DATA_FILE` 和 `SHOP_UPLOAD_DIR` 环境变量配置监听地址与存储位置。
 
 ## 业务流程
 
@@ -52,4 +50,3 @@ python3.12 -m venv .venv
 
 所有数据写入本地文件，重启后保留。上传图片限一张 JPG/PNG，大小不超过 5 MB。
 商品价格必须大于 0、最多两位小数，最高为 `90071992547409.91` 元（以分保存时不超过 JavaScript 安全整数上限）。超长或超出范围的价格会返回 HTTP 400 JSON 错误，不会保存商品或图片。
-
