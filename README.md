@@ -2,35 +2,52 @@
 
 这是一个一次只展示一件商品的简易购物意向系统。买家无需注册即可提交意向并凭口令码查看进度；卖家登录后发布商品、按顺序处理交易。交易在线下完成，系统不处理支付或物流。
 
-## rebuild_v3 修复版
+## Java 重构版
 
-本版修复 DEF-001：发布商品时，超长或超出支持范围的价格会返回 HTTP 400 JSON 错误，商品和图片均不会被保存。项目内回归测试共 11 项通过，完整外部测试共 65 项通过。
-缺陷复现、原因、修复与回归过程见 [DEF-001 缺陷迭代记录](docs/testing/DEF-001-iteration.md)。
+后端已重构为 Java 17 + Spring Boot，保留原有前端页面、CSS 样式、JavaScript 逻辑、`/api/*` 接口路径和 JSON 响应结构。数据存储从本地 `data.json` 换成 **SQLite 数据库**（单文件、免安装、免账号密码），原有 `data.json` 会在首次启动时自动迁移进数据库。
 
 ## 技术环境
 
-- Python 3.12（本项目验证版本）
-- Flask：页面与 API 服务
-- Pillow：校验上传图片确实为 JPG 或 PNG
+- Java 17（唯一需要预装的东西）
+- Spring Boot 3.4
+- Maven（无需单独安装，项目自带 Maven Wrapper `mvnw` / `mvnw.cmd`）
+- Spring Data JPA + Hibernate 6
+- 数据库：SQLite（`org.xerial:sqlite-jdbc` + `hibernate-community-dialects`）
 - 前端：原生 HTML、CSS、JavaScript，无需前端构建工具
-- 数据：本地 `data.json` 与 `uploads/`，无需数据库
+
+> 如果你用 Navicat 看数据：新建连接选 **SQLite**，数据库文件指向项目根目录下的 `data/shop.db` 即可。
 
 ## 安装与运行
 
-在项目根目录执行。Windows PowerShell：
+### 前置条件
+
+只需要 **JDK 17**。在命令行确认：
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe app.py
+java -version
 ```
 
-macOS / Linux：
+### 启动
 
-```sh
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python app.py
+在项目根目录执行（Windows PowerShell）：
+
+```powershell
+.\mvnw.cmd spring-boot:run
+```
+
+Mac / Linux：
+
+```bash
+./mvnw spring-boot:run
+```
+
+首次执行会自动下载 Maven 与依赖（需要联网，仅第一次），之后可离线运行。开发模式下修改 `public/` 里的 HTML、CSS、JavaScript 后刷新浏览器即可；修改 Java 后重新执行该命令。
+
+打包成可提交 / 部署的 `jar`：
+
+```powershell
+.\mvnw.cmd clean package
+java -jar target\shopping-system-1.0.0.jar
 ```
 
 启动后访问：
@@ -38,9 +55,39 @@ python3.12 -m venv .venv
 - 买家页面：<http://localhost:3000/>
 - 卖家后台：<http://localhost:3000/admin.html>
 
-默认卖家账号为 `admin`，初始密码为 `admin1234`。首次启动前可设置环境变量 `DEFAULT_SELLER_PASSWORD` 更换初始密码；首次登录后也可在后台修改密码。服务默认仅监听本机 `127.0.0.1:3000`，可通过 `HOST`、`PORT` 环境变量调整。
+默认卖家账号为 `admin`，初始密码为 `admin1234`。首次登录后请到后台修改密码。
 
-首次启动会创建 `data.json` 和 `uploads/`。
+## 数据库
+
+首次启动会自动在项目根目录创建：
+
+```
+data/shop.db        SQLite 数据库文件（所有业务数据）
+uploads/            商品图片
+```
+
+三张表：
+
+| 表名 | 说明 |
+| --- | --- |
+| `seller` | 卖家账号（单条记录），密码只存哈希 |
+| `product` | 商品，含状态、交易中的意向 id、交易结果 |
+| `intent` | 购买意向，含口令码、阶段与结局 |
+
+数据全部落在这个 `.db` 文件里，重启后保留，拷贝文件即可整体迁移。
+
+## 环境变量
+
+全部可选，不配置就用默认值：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `SHOP_HOST` | `127.0.0.1` | 监听地址 |
+| `SHOP_PORT` | `3000` | 监听端口 |
+| `SHOP_DB_FILE` | `./data/shop.db` | SQLite 数据库文件路径 |
+| `SHOP_UPLOAD_DIR` | `./uploads` | 图片上传目录 |
+| `SHOP_DATA_FILE` | `./data.json` | 旧数据文件路径，仅用于首次迁移 |
+| `DEFAULT_SELLER_PASSWORD` | `admin1234` | 无卖家账号时创建的初始密码 |
 
 ## 业务流程
 
@@ -50,6 +97,9 @@ python3.12 -m venv .venv
 4. 买家可凭口令码查询排队进度、修改联系信息或撤销意向。若交易中的买家撤销，卖家需在后台确认处理，系统再递补下一位。
 5. 交易成功后商品进入历史记录，其余未成交意向结案，全部相关口令码失效。
 
-所有数据写入本地文件，重启后保留。上传图片限一张 JPG/PNG，大小不超过 5 MB。
+上传图片限一张 JPG/PNG，大小不超过 5 MB。
 商品价格必须大于 0、最多两位小数，最高为 `90071992547409.91` 元（以分保存时不超过 JavaScript 安全整数上限）。超长或超出范围的价格会返回 HTTP 400 JSON 错误，不会保存商品或图片。
 
+## 从旧版本迁移
+
+如果项目根目录存在旧的 `data.json`，且数据库三张表都为空，首次启动会自动导入其中的卖家、商品和意向数据（含口令码与历史结局），随后即可删除 `data.json`。若数据库已有数据，则跳过迁移，不会覆盖。
