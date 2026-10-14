@@ -39,8 +39,8 @@ async function loadProduct() {
             <div class="product-form-intro"><h3>想把它带回家？</h3><p>留下姓名和电话，我们会按提交顺序联系你。</p></div>
             <form id="intent" class="stack-form">
               <div class="form-grid">
-                <label class="field" for="intent-name"><span class="field-label">怎么称呼你</span><input id="intent-name" name="name" placeholder="你的姓名" autocomplete="name" required></label>
-                <label class="field" for="intent-phone"><span class="field-label">联系电话</span><input id="intent-phone" name="phone" type="tel" placeholder="方便联系你的电话" autocomplete="tel" required></label>
+                <label class="field" for="intent-name"><span class="field-label">怎么称呼你</span><input id="intent-name" name="name" maxlength="64" placeholder="你的姓名" autocomplete="name" required></label>
+                <label class="field" for="intent-phone"><span class="field-label">联系电话</span><input id="intent-phone" name="phone" type="tel" maxlength="32" placeholder="方便联系你的电话" autocomplete="tel" required></label>
               </div>
               <button class="button" type="submit">提交购买意向 <span aria-hidden="true">→</span></button>
               <p class="form-note">提交后会得到一个口令码，记得保存好。</p>

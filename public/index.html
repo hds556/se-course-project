@@ -65,8 +65,8 @@
           <p class="muted">修改时请填写更新后的姓名和联系电话。</p>
         </div>
         <div class="form-grid">
-          <label class="field" for="edit-name"><span class="field-label">姓名</span><input id="edit-name" name="name" placeholder="你的姓名" autocomplete="name" required></label>
-          <label class="field" for="edit-phone"><span class="field-label">联系电话</span><input id="edit-phone" name="phone" type="tel" placeholder="方便联系你的电话" autocomplete="tel" required></label>
+          <label class="field" for="edit-name"><span class="field-label">姓名</span><input id="edit-name" name="name" maxlength="64" placeholder="你的姓名" autocomplete="name" required></label>
+          <label class="field" for="edit-phone"><span class="field-label">联系电话</span><input id="edit-phone" name="phone" type="tel" maxlength="32" placeholder="方便联系你的电话" autocomplete="tel" required></label>
         </div>
         <div class="form-actions"><button class="button button-secondary" type="submit">保存修改</button><button class="button button-quiet" type="button" id="cancel">撤销意向</button></div>
       </form>

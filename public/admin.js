@@ -194,13 +194,44 @@ $('#dismissSellerPasscode').onclick = () => {
   $('#sellerPasscodeValue').textContent = '';
 };
 
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ≤ 5MB（SRS FR-S-02 / BR-17）
+const PRICE_PATTERN = /^(0|[1-9]\d{0,6})(\.\d{1,2})?$/; // >0，最多两位小数
+
+function validatePrice(raw) {
+  const value = String(raw ?? '').trim();
+  if (!PRICE_PATTERN.test(value)) return '价格须为大于 0、最多两位小数的人民币金额。';
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0 || number > 9999999.99) return '价格须为大于 0 且不超过 9999999.99 的金额。';
+  return '';
+}
+
+function validateImage(file) {
+  if (!file) return '请选择商品图片。';
+  const okType = file.type === 'image/jpeg' || file.type === 'image/png';
+  if (!okType) return '商品图片仅支持 JPG、PNG 格式。';
+  if (file.size > MAX_IMAGE_BYTES) return '商品图片大小不能超过 5MB。';
+  return '';
+}
+
+function validatePassword(password) {
+  if (!/^[A-Za-z0-9!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]{8,}$/.test(password)) return '新密码至少 8 位。';
+  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) return '新密码须同时包含字母和数字。';
+  return '';
+}
+
 $('#publish').onsubmit = async (event) => {
   event.preventDefault();
   message('');
-  const button = event.target.querySelector('button[type="submit"]');
+  const form = event.target;
+  const formObject = new FormData(form);
+  const priceError = validatePrice(formObject.get('price'));
+  if (priceError) { message(priceError); $('#publish-price').focus(); return; }
+  const imageError = validateImage(formObject.get('image'));
+  if (imageError) { message(imageError); $('#publish-image').focus(); return; }
+  const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
   try {
-    await request('/api/products', { method: 'POST', body: new FormData(event.target) });
+    await request('/api/products', { method: 'POST', body: new FormData(form) });
     event.target.reset();
     await load();
     message('商品已发布，正在等待第一份购买意向。', 'success');
@@ -214,15 +245,19 @@ $('#publish').onsubmit = async (event) => {
 $('#password').onsubmit = async (event) => {
   event.preventDefault();
   message('');
-  const button = event.target.querySelector('button[type="submit"]');
+  const form = event.target;
+  const newPassword = String(new FormData(form).get('newPassword') ?? '');
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) { message(passwordError); $('#new-password').focus(); return; }
+  const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
   try {
     await request('/api/auth/password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.fromEntries(new FormData(event.target)))
+      body: JSON.stringify(Object.fromEntries(new FormData(form)))
     });
-    event.target.reset();
+    form.reset();
     message('密码已修改，请妥善保存新密码。', 'success');
   } catch (error) {
     message(error.message);
