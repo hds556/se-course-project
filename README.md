@@ -59,6 +59,28 @@ java -jar target\shopping-system-1.0.0.jar
 
 默认卖家账号为 `admin`，初始密码为 `admin1234`。首次登录后请到后台修改密码。
 
+## 部署
+
+### 方式一：Docker 镜像交付（给使用者，推荐）
+
+交付包包含四个文件：`shopping-system.tar`（镜像）、`docker-compose.yml`（运行配置）、`run.ps1`（Windows 一键运行）、`run.sh`（Linux / macOS 一键运行）。使用者解压后执行：
+
+```powershell
+.\run.ps1        # Windows
+./run.sh         # Linux / macOS
+# 或手动：
+docker load -i shopping-system.tar
+docker compose up -d
+```
+
+### 方式二：源码自行构建（开发者）
+
+支持 Docker 一键部署，详见 [安装部署手册.md](安装部署手册.md)：
+
+```powershell
+docker compose up -d --build
+```
+
 ## 数据库
 
 首次启动会自动在项目根目录创建：

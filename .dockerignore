@@ -1,0 +1,14 @@
+target/*
+!target/shopping-system-1.0.0.jar
+data/
+uploads/
+.git/
+.idea/
+.vscode/
+*.iml
+ppt/
+test-video.zip
+*.md
+docker-compose.yml
+deploy.ps1
+deploy.sh

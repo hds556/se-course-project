@@ -167,10 +167,22 @@ public class ShoppingController {
     }
 
     private String readPublicFile(String filename) {
+        byte[] content = readPublicBytes(filename);
+        if (content == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "页面不存在");
+        return new String(content, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** 读取 public 静态文件：优先文件系统（开发模式），找不到时回退到 jar 内 classpath:/static/ */
+    private byte[] readPublicBytes(String filename) {
         try {
-            return java.nio.file.Files.readString(java.nio.file.Path.of("public", filename));
+            return java.nio.file.Files.readAllBytes(java.nio.file.Path.of("public", filename).toAbsolutePath().normalize());
+        } catch (java.io.IOException ignored) {
+            // 文件系统不存在，尝试 classpath（打包部署时前端已打进 jar）
+        }
+        try (java.io.InputStream in = getClass().getResourceAsStream("/static/" + filename)) {
+            return in == null ? null : in.readAllBytes();
         } catch (java.io.IOException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "页面不存在", e);
+            return null;
         }
     }
 
@@ -183,7 +195,14 @@ public class ShoppingController {
                     ? root.resolve(relativePath.substring("../uploads/".length()))
                     : root.resolve(relativePath)).toAbsolutePath().normalize();
             if (!requested.startsWith(root)) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-            byte[] content = java.nio.file.Files.readAllBytes(requested);
+            byte[] content;
+            try {
+                content = java.nio.file.Files.readAllBytes(requested);
+            } catch (java.io.IOException e) {
+                if (upload) throw e; // 上传图片只存文件系统，无 classpath 回退
+                content = readPublicBytes(relativePath); // 前端文件回退到 jar 内
+                if (content == null) throw e;
+            }
             MediaType type = MediaTypeFactory.getMediaType(requested.getFileName().toString())
                     .orElse(MediaType.APPLICATION_OCTET_STREAM);
             return ResponseEntity.ok().contentType(type).body(content);

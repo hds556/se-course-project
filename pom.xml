@@ -79,6 +79,17 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!-- 将根目录 public/ 的前端文件打进 jar（BOOT-INF/classes/static/），
+                 使打包产物不依赖外部 public 目录即可运行 -->
+            <resource>
+                <directory>public</directory>
+                <targetPath>static</targetPath>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
