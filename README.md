@@ -63,7 +63,7 @@ java -jar target\shopping-system-1.0.0.jar
 
 ### 方式一：Docker 镜像交付（给使用者，推荐）
 
-交付包包含四个文件：`shopping-system.tar`（镜像）、`docker-compose.yml`（运行配置）、`run.ps1`（Windows 一键运行）、`run.sh`（Linux / macOS 一键运行）。使用者解压后执行：
+交付文件集中在 `deploy/` 目录：`shopping-system.tar`（镜像）、`docker-compose.yml`（运行配置）、`run.ps1`（Windows 一键运行）、`run.sh`（Linux / macOS 一键运行）。进入 `deploy/` 目录执行：
 
 ```powershell
 .\run.ps1        # Windows
@@ -75,10 +75,11 @@ docker compose up -d
 
 ### 方式二：源码自行构建（开发者）
 
-支持 Docker 一键部署，详见 [安装部署手册.md](安装部署手册.md)：
+支持 Docker 一键部署，详见 [安装部署手册](deploy/安装部署手册.md)（需在**项目根目录**指定 Dockerfile 位置）：
 
 ```powershell
-docker compose up -d --build
+docker build -t shopping-system:1.0.0 -f deploy/Dockerfile .
+docker compose -f deploy/docker-compose.yml up -d
 ```
 
 ## 数据库

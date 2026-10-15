@@ -1,6 +1,6 @@
 # 在线购物系统 MVP 部署镜像
 # 构建镜像（需先完成 mvnw package 产出 target/shopping-system-1.0.0.jar）：
-#   docker build -t shopping-system:1.0.0 .
+#   （在项目根目录执行）docker build -t shopping-system:1.0.0 -f deploy/Dockerfile .
 # 运行：
 #   docker run -d -p 3000:3000 -v shopping-data:/app/data -v shopping-uploads:/app/uploads --name shopping-system shopping-system:1.0.0
 
