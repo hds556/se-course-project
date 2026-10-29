@@ -1,232 +1,29 @@
-const $ = (selector) => document.querySelector(selector);
-const money = (cents) => `¥${(cents / 100).toFixed(2)}`;
-const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-})[character]);
-
-function message(text, kind = 'error') {
-  const element = $('#message');
-  element.textContent = text || '';
-  element.dataset.kind = text ? kind : '';
-  element.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-}
-
-async function request(url, options = {}) {
-  const response = await fetch(url, options);
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || '操作失败，请稍后重试');
-  return data;
-}
-
-const productStatus = {
-  active: '正在接受意向',
-  resumed: '已恢复接收',
-  frozen: '暂缓接收意向'
-};
-
-const intentStage = {
-  queued: '排队中',
-  trading: '交易中'
-};
-
-const intentOutcome = {
-  success: '成功',
-  unsold: '未成交',
-  cancelled: '撤销',
-  requeued: '重新排队',
-  voided: '作废'
-};
-
-function formatDate(value) {
-  if (!value) return '时间待更新';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '时间待更新' : date.toLocaleString('zh-CN', { hour12: false });
-}
-
-function renderCurrent(product, tradingIntent) {
-  const heading = '<div class="admin-section-head"><div><p class="admin-kicker">正在照看的好物</p><h2>当前商品</h2></div></div>';
-  if (!product) {
-    return `${heading}<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">✳</span><h3>现在没有在售商品</h3><p>准备好下一件好物后，可在“发布商品”区域上架。</p></div>`;
-  }
-
-  const isOpen = product.status === 'active' || product.status === 'resumed';
-  const activeTrading = tradingIntent?.stage === 'trading';
-  const cancelledTrading = tradingIntent?.stage === 'closed' && tradingIntent.outcome === 'cancelled';
-  const status = cancelledTrading ? '交易买家已撤销' : activeTrading ? '交易中' : (productStatus[product.status] || '状态待更新');
-  const statusClass = activeTrading ? 'status-trading' : (isOpen ? 'status-active' : 'status-paused');
-  const image = product.image
-    ? `<img class="admin-product-image" src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}的商品图片">`
-    : '';
-  const tradingNote = activeTrading
-    ? `<div class="admin-trading-note"><span>当前交易：</span><strong>${escapeHtml(tradingIntent.name)}</strong><span> · ${escapeHtml(tradingIntent.phone)}</span></div>`
-    : cancelledTrading
-      ? `<div class="admin-trading-note admin-trading-cancelled"><strong>${escapeHtml(tradingIntent.name)} 已撤销意向</strong><span>商品仍处于冻结状态。请处理撤销，再由系统自动递补下一位；若队列已空，商品将恢复在售。</span></div>`
-      : '';
-  const actions = [
-    isOpen ? '<button class="button" type="button" data-action="start">开始下一笔交易</button><button class="button button-quiet" type="button" data-action="freeze">暂缓接收意向</button>' : '',
-    product.status === 'frozen' && !tradingIntent ? '<button class="button" type="button" data-action="unfreeze">恢复接收意向</button>' : '',
-    activeTrading ? '<button class="button" type="button" data-action="success">标记交易成功</button><button class="button button-secondary" type="button" data-action="requeue">交易失败 · 重新排队</button><button class="button button-danger" type="button" data-action="void">交易失败 · 作废</button>' : '',
-    cancelledTrading ? '<button class="button" type="button" data-action="advance">处理撤销并递补</button>' : ''
-  ].join('');
-
-  return `${heading}
-    <div class="admin-product-body">
-      ${image}
-      <div class="admin-product-content">
-        <div class="admin-current-top"><h3>${escapeHtml(product.name)}</h3><span class="status-pill ${statusClass}"><span class="status-dot" aria-hidden="true"></span>${status}</span></div>
-        <p class="admin-price">${money(product.priceCents)}</p>
-        <p class="muted product-description">${escapeHtml(product.description)}</p>
-        ${tradingNote}
-      </div>
-    </div>
-    ${actions ? `<div class="admin-actions">${actions}</div>` : ''}`;
-}
-
-function renderIntents(intents) {
-  if (!intents.length) return '<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">♡</span><h3>还没有购买意向</h3><p>有人留下意向后，会按顺序出现在这里。</p></div>';
-  return `<ol class="admin-intent-list">${intents.map((intent) => `
-    <li class="admin-intent-item ${intent.outcome === 'cancelled' ? 'admin-intent-cancelled' : ''}">
-      <span class="admin-intent-position">${intent.outcome === 'cancelled' ? '已撤销' : intent.stage === 'queued' ? `第 ${escapeHtml(intent.position || '—')} 位` : '交易中'}</span>
-      <div class="admin-intent-person"><strong>${escapeHtml(intent.name)}</strong><span>${escapeHtml(intent.phone)}</span></div>
-      <span class="admin-intent-meta"><strong>${intent.outcome === 'cancelled' ? '交易买家已撤销' : intentStage[intent.stage] || '待更新'}</strong><time datetime="${escapeHtml(intent.submittedAt)}">${escapeHtml(formatDate(intent.submittedAt))}</time></span>
-    </li>`).join('')}</ol>`;
-}
-
-function renderHistory(products) {
-  if (!products.length) return '<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">✳</span><h3>还没有历史商品</h3><p>完成第一笔交易后，记录会保存在这里。</p></div>';
-  return `<div class="admin-history-list">${products.map((product) => `
-    <details class="admin-history-item">
-      <summary class="admin-history-summary"><span><strong>${escapeHtml(product.name)}</strong><small>发布于 ${escapeHtml(formatDate(product.createdAt))}</small></span><span class="status-pill status-active">交易成功</span></summary>
-      <div class="admin-history-detail">
-        <div class="admin-history-product ${product.image ? '' : 'admin-history-product-no-image'}">
-          ${product.image ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}的商品图片">` : ''}
-          <div>
-            <p class="admin-history-description">${escapeHtml(product.description)}</p>
-            <div class="admin-history-facts"><span>价格 <strong>${money(product.priceCents)}</strong></span><span>发布时间 <strong>${escapeHtml(formatDate(product.createdAt))}</strong></span><span>交易结果 <strong>${product.result === 'success' ? '成功' : escapeHtml(product.result || '待更新')}</strong></span><span>交易时间 <strong>${escapeHtml(formatDate(product.resultAt))}</strong></span></div>
-          </div>
-        </div>
-        <div class="admin-history-intents"><h3>完整意向记录</h3>${product.intents.length ? `<ul>${product.intents.map((intent) => `
-          <li><span><strong>${escapeHtml(intent.name)}</strong><small>${escapeHtml(intent.phone)}</small></span><span><strong>${intentOutcome[intent.outcome] || '待更新'}</strong><time datetime="${escapeHtml(intent.submittedAt)}">${escapeHtml(formatDate(intent.submittedAt))}</time></span></li>`).join('')}</ul>` : '<p class="muted">这件商品没有意向记录。</p>'}</div>
-      </div>
-    </details>`).join('')}</div>`;
-}
-
-async function load() {
-  const [{ product, tradingIntent }, { intents }, history] = await Promise.all([
-    request('/api/admin/product'),
-    request('/api/admin/intents'),
-    request('/api/admin/history')
-  ]);
-  $('#current').innerHTML = renderCurrent(product, tradingIntent);
-  $('#intents').innerHTML = renderIntents(intents);
-  $('#history').innerHTML = renderHistory(history.products);
-  $('#publish').hidden = Boolean(product);
-  $('#publishNotice').hidden = !product;
-  $('#current').querySelectorAll('[data-action]').forEach((button) => {
-    button.onclick = () => action(button.dataset.action, button);
-  });
-}
-
-async function action(type, button) {
-  if (type === 'success' && !confirm('标记交易成功后不可撤销，确定继续吗？')) return;
-  message('');
-  button.disabled = true;
-  try {
-    let newPasscode = null;
-    if (type === 'start') await request('/api/admin/trade/start', { method: 'POST' });
-    else if (type === 'freeze') await request('/api/admin/freeze', { method: 'POST' });
-    else if (type === 'unfreeze') await request('/api/admin/unfreeze', { method: 'POST' });
-    else if (type === 'success') await request('/api/admin/trade/success', { method: 'POST' });
-    else if (type === 'advance') await request('/api/admin/trade/advance', { method: 'POST' });
-    else {
-      const result = await request('/api/admin/trade/fail', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ disposition: type === 'requeue' ? 'requeue' : 'void' })
-      });
-      newPasscode = result.newPasscode;
-    }
-    if (newPasscode) {
-      $('#sellerPasscodeValue').textContent = newPasscode;
-      $('#sellerPasscodeCard').hidden = false;
-      $('#sellerPasscodeCard').focus();
-    }
-    await load();
-    const actionMessages = {
-      start: '已开始联系下一位买家。',
-      freeze: '已暂缓接收新的购买意向。',
-      unfreeze: '已恢复接收购买意向。',
-      success: '交易已标记成功，这件好物已移入历史记录。',
-      void: '本次意向已结束，队列已更新。',
-      requeue: '买家已重新排队，新口令码已展示，请告知买家。',
-      advance: '撤销已处理，队列和商品状态已更新。'
-    };
-    message(actionMessages[type], 'success');
-  } catch (error) {
-    message(error.message);
-    button.disabled = false;
-  }
-}
-
-$('#loginForm').onsubmit = async (event) => {
-  event.preventDefault();
-  message('');
-  const button = event.target.querySelector('button[type="submit"]');
-  button.disabled = true;
-  try {
-    await request('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.fromEntries(new FormData(event.target)))
-    });
-    await load();
-    $('#login').hidden = true;
-    $('#dashboard').hidden = false;
-  } catch (error) {
-    message(error.message);
-  } finally {
-    button.disabled = false;
-  }
-};
-
-$('#dismissSellerPasscode').onclick = () => {
-  $('#sellerPasscodeCard').hidden = true;
-  $('#sellerPasscodeValue').textContent = '';
-};
-
-$('#publish').onsubmit = async (event) => {
-  event.preventDefault();
-  message('');
-  const button = event.target.querySelector('button[type="submit"]');
-  button.disabled = true;
-  try {
-    await request('/api/products', { method: 'POST', body: new FormData(event.target) });
-    event.target.reset();
-    await load();
-    message('商品已发布，正在等待第一份购买意向。', 'success');
-  } catch (error) {
-    message(error.message);
-  } finally {
-    button.disabled = false;
-  }
-};
-
-$('#password').onsubmit = async (event) => {
-  event.preventDefault();
-  message('');
-  const button = event.target.querySelector('button[type="submit"]');
-  button.disabled = true;
-  try {
-    await request('/api/auth/password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.fromEntries(new FormData(event.target)))
-    });
-    event.target.reset();
-    message('密码已修改，请妥善保存新密码。', 'success');
-  } catch (error) {
-    message(error.message);
-  } finally {
-    button.disabled = false;
-  }
-};
+'use strict';
+const $=selector=>document.querySelector(selector);
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let tree=[], inventoryPage=1, previewUrls=[];
+const states={active:'在售',resumed:'在售',frozen:'已冻结',sold:'已售（终态）',depleted:'售罄下架',withdrawn:'手动下架'};
+async function api(url,options={}){const r=await fetch(url,options);const data=await r.json();if(r.status===401){location.href='/login.html';throw Error('登录已失效');}if(!r.ok){const e=Error(data.error||'操作失败');e.fields=data.fieldErrors||{};throw e;}return data;}
+function json(method,body){return {method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};}
+function notice(message,error=false){$('#notice').textContent=message;$('#notice').className=error?'error':'';}
+function tab(name){document.querySelectorAll('main>section:not(.intro)').forEach(section=>section.hidden=section.id!==name);document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('secondary',button.dataset.tab!==name));location.hash=name;notice('');}
+document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>tab(button.dataset.tab));
+async function loadCategories(){tree=await api('/api/admin/categories');const options='<option value="">请选择二级类别</option>'+tree.map(parent=>`<optgroup label="${esc(parent.name)}">${parent.children.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</optgroup>`).join('');document.querySelectorAll('.leaf-options').forEach(select=>{const old=select.value;select.innerHTML=options;select.value=old;});$('#parent-category').innerHTML='<option value="">无，创建一级类别</option>'+tree.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');$('#category-tree').innerHTML=tree.length?tree.map(parent=>`<div class="category-group">${row(parent,false)}${parent.children.map(c=>row(c,true)).join('')}</div>`).join(''):'<p class="muted">暂无类别，请先创建一级类别，再创建二级类别。</p>';}
+function row(c,child){return `<div class="category-row ${child?'child':''}"><span>${child?'└ ':''}${esc(c.name)}</span><div class="actions"><button class="secondary" data-rename="${c.id}">重命名</button><button class="secondary" data-delete="${c.id}">删除</button></div></div>`;}
+async function loadInventory(){const result=await api(`/api/admin/products?page=${inventoryPage}`);$('#inventory-body').innerHTML=result.items.length?result.items.map(p=>`<tr><td>${esc(p.name)}</td><td>¥${(p.priceCents/100).toFixed(2)}</td><td>${esc(p.category.parentName)} / ${esc(p.category.name)}</td><td>${p.stock}</td><td>${states[p.status]||esc(p.status)}</td><td><button class="secondary" data-edit="${p.id}">编辑</button></td></tr>`).join(''):'<tr><td colspan="6">暂无商品，请先建立二级类别并发布商品。</td></tr>';$('#admin-pagination').innerHTML=`<button class="secondary" id="admin-prev" ${inventoryPage<=1?'disabled':''}>上一页</button><span>第 ${inventoryPage} / ${Math.max(1,result.totalPages)} 页，共 ${result.total} 件</span><button class="secondary" id="admin-next" ${inventoryPage>=result.totalPages?'disabled':''}>下一页</button>`;$('#admin-prev').onclick=()=>{inventoryPage--;loadInventory().catch(e=>notice(e.message,true));};$('#admin-next').onclick=()=>{inventoryPage++;loadInventory().catch(e=>notice(e.message,true));};}
+$('#refresh').onclick=()=>loadInventory().catch(e=>notice(e.message,true));
+$('#logout').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST'});location.href='/login.html';}catch(e){notice(e.message,true);}};
+$('#category-form').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;const values=Object.fromEntries(new FormData(event.target));try{await api('/api/admin/categories',json('POST',{name:values.name,parentId:values.parentId?Number(values.parentId):null}));event.target.reset();await loadCategories();notice('类别已创建');}catch(e){notice(e.message,true);}finally{button.disabled=false;}};
+$('#category-tree').onclick=async event=>{const rename=event.target.closest('[data-rename]'),remove=event.target.closest('[data-delete]');if(rename){const id=Number(rename.dataset.rename),category=tree.flatMap(c=>[c,...c.children]).find(c=>c.id===id);$('#rename-form').elements.id.value=id;$('#rename-form').elements.name.value=category.name;$('#rename-error').textContent='';$('#category-dialog').showModal();}if(remove){const id=Number(remove.dataset.delete);if(!confirm('确认删除这个类别？挂有商品或子类别时会拒绝删除。'))return;try{await api(`/api/admin/categories/${id}`,{method:'DELETE'});await loadCategories();notice('类别已删除');}catch(e){notice(e.message,true);}}};
+$('#rename-form').onsubmit=async event=>{event.preventDefault();const form=event.target;try{await api(`/api/admin/categories/${form.elements.id.value}`,json('PATCH',{name:form.elements.name.value}));$('#category-dialog').close();await loadCategories();await loadInventory();notice('类别名称已更新');}catch(e){$('#rename-error').textContent=e.message;}};
+$('#close-category').onclick=()=>$('#category-dialog').close();
+$('#inventory-body').onclick=async event=>{const button=event.target.closest('[data-edit]');if(!button)return;try{const p=await api(`/api/admin/products/${button.dataset.edit}`);const form=$('#edit-form');form.elements.id.value=p.id;form.elements.version.value=p.version;form.elements.stock.value=p.stock;form.elements.categoryId.value=p.category.id;$('#edit-name').textContent=p.name;$('#edit-error').textContent='';$('#edit-dialog').showModal();}catch(e){notice(e.message,true);}};
+$('#close-edit').onclick=()=>$('#edit-dialog').close();
+$('#edit-form').onsubmit=async event=>{event.preventDefault();const form=event.target;event.submitter.disabled=true;try{await api(`/api/admin/products/${form.elements.id.value}`,json('PATCH',{stock:Number(form.elements.stock.value),categoryId:Number(form.elements.categoryId.value),version:Number(form.elements.version.value)}));$('#edit-dialog').close();await loadInventory();notice('库存与类别已保存');}catch(e){$('#edit-error').textContent=e.message;}finally{event.submitter.disabled=false;}};
+function imageError(files){if(files.length>9)return '商品图片最多 9 张';for(const f of files){if(!['image/jpeg','image/png'].includes(f.type)||!(/\.(jpe?g|png)$/i.test(f.name)))return '仅支持 JPG/PNG 图片';if(f.size>5*1024*1024)return '单张图片不得超过 5MB';}return '';}
+$('#images').onchange=()=>{previewUrls.forEach(URL.revokeObjectURL);previewUrls=[];const files=Array.from($('#images').files),error=imageError(files);$('[data-error="images"]').textContent=error;$('#image-preview').innerHTML=error?'':files.map((f,i)=>{const url=URL.createObjectURL(f);previewUrls.push(url);return `<figure><img src="${url}" alt="${esc(f.name)}"><figcaption>${i===0?'主图':'商品图 '+(i+1)}</figcaption></figure>`;}).join('');};
+document.querySelectorAll('[data-format]').forEach(button=>button.onmousedown=event=>{event.preventDefault();const selection=getSelection();if(!selection.rangeCount)return;const range=selection.getRangeAt(0);if(!$('#editor').contains(range.commonAncestorContainer))return;const node=document.createElement(button.dataset.format);node.appendChild(range.extractContents());if(!node.textContent)node.textContent='请输入文字';range.insertNode(node);selection.removeAllRanges();const next=document.createRange();next.selectNodeContents(node);selection.addRange(next);});
+$('#editor').addEventListener('paste',event=>{event.preventDefault();const selection=getSelection();if(!selection.rangeCount)return;const range=selection.getRangeAt(0);range.deleteContents();const node=document.createTextNode(event.clipboardData.getData('text/plain'));range.insertNode(node);range.setStartAfter(node);range.collapse(true);selection.removeAllRanges();selection.addRange(range);});
+$('#inline-image').onchange=async event=>{const file=event.target.files[0];if(!file)return;const error=imageError([file]);if(error){notice(error,true);return;}const data=new FormData();data.append('image',file);try{const result=await api('/api/admin/description-images',{method:'POST',body:data});const img=document.createElement('img');img.src=result.url;img.alt='商品描述插图';$('#editor').appendChild(img);notice('描述图片已插入');}catch(e){notice(e.message,true);}finally{event.target.value='';}};
+$('#publish-form').onsubmit=async event=>{event.preventDefault();const form=event.target;form.querySelectorAll('[data-error]').forEach(node=>node.textContent='');const data=new FormData(form);data.set('description',$('#editor').innerHTML);if(!$('#images').files.length)data.delete('images');const error=imageError(Array.from($('#images').files));if(error){$('[data-error="images"]').textContent=error;return;}event.submitter.disabled=true;try{const result=await api('/api/products',{method:'POST',body:data});form.reset();$('#editor').replaceChildren();$('#image-preview').replaceChildren();previewUrls.forEach(URL.revokeObjectURL);previewUrls=[];inventoryPage=1;await loadInventory();tab('inventory');notice(`商品“${result.name}”已发布`);}catch(e){for(const [field,message]of Object.entries(e.fields||{})){const target=form.querySelector(`[data-error="${field}"]`);if(target)target.textContent=message;}if(!Object.keys(e.fields||{}).length)$('[data-error="form"]').textContent=e.message;notice(e.message,true);}finally{event.submitter.disabled=false;}};
+Promise.all([loadCategories(),loadInventory()]).then(()=>tab(['publish','categories'].includes(location.hash.slice(1))?location.hash.slice(1):'inventory')).catch(e=>notice(e.message,true));

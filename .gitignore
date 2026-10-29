@@ -1,0 +1,11 @@
+target/
+data/
+uploads/
+*.tar
+*.jar
+/.codex-ppt-build/
+/.venv/
+**/node_modules/
+**/__pycache__/
+*.py[cod]
+~$*

@@ -1,0 +1,26 @@
+package com.coursewise.shopping.repository;
+
+import com.coursewise.shopping.domain.ProductEntity;
+import com.coursewise.shopping.domain.ProductStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+import java.util.Optional;
+
+/** 商品仓储。 */
+public interface ProductRepository extends JpaRepository<ProductEntity, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<ProductEntity> {
+
+    boolean existsByCategoryId(Long categoryId);
+
+    /**
+     * 当前未售出的商品（系统中至多一件）。
+     * status != sold 即未售出；取 id 最大者以防历史数据异常时仍能稳定取值。
+     */
+    Optional<ProductEntity> findFirstByStatusNotOrderByIdDesc(ProductStatus status);
+
+    /** 是否已存在未售出商品（发布商品的前置校验）。 */
+    boolean existsByStatusNot(ProductStatus status);
+
+    /** 历史商品：全部已下架商品，按发布时间倒序（FR-S-08）。 */
+    List<ProductEntity> findByStatusOrderByIdDesc(ProductStatus status);
+}

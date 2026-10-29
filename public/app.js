@@ -1,132 +1,49 @@
-const $ = (selector) => document.querySelector(selector);
-let currentCode = '';
-const money = (cents) => `¥${(cents / 100).toFixed(2)}`;
-const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-})[char]);
-
-function message(text, tone = 'error') {
-  const element = $('#message');
-  element.textContent = text || '';
-  element.dataset.tone = tone;
-}
-
-async function request(url, options = {}) {
-  const response = await fetch(url, options);
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || '操作失败');
-  return data;
-}
-
-async function loadProduct() {
+'use strict';
+const $ = selector => document.querySelector(selector);
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = value => `¥${(value / 100).toFixed(2)}`;
+async function api(url) { const response = await fetch(url); const body = await response.json(); if (!response.ok) throw Error(body.error || '暂时无法加载，请重试'); return body; }
+let requestId = 0;
+async function render() {
+  const sequence = ++requestId;
+  const params = new URLSearchParams(location.search);
+  $('.intro').hidden = params.has('product');
+  $('#message').textContent = '';
+  $('#catalog').hidden = params.has('product'); $('#detail').hidden = !params.has('product');
   try {
-    const { product } = await request('/api/product');
-    if (!product) {
-      $('#product').innerHTML = '<div class="card empty-state"><span class="empty-mark" aria-hidden="true">✳</span><p class="eyebrow">好物筹备中</p><h2>暂无在售商品</h2><p>下一件好物还在准备中，欢迎稍后再来看看。</p></div>';
+    if (params.has('product')) {
+      $('#detail').innerHTML = '<p class="muted">正在加载商品详情…</p>';
+      const product = await api(`/api/products/${encodeURIComponent(params.get('product'))}`);
+      if (sequence !== requestId) return;
+      const images = product.images.length ? product.images : ['/placeholder.svg'];
+      const frozen = product.status === 'frozen';
+      $('#detail').innerHTML = `<div class="detail-top"><a href="/" id="back">← 返回商品列表</a><span class="status ${frozen ? 'frozen' : ''}">${frozen ? '交易中 · 已冻结' : '在售'}</span></div><div class="detail-layout"><div><img class="main-image" src="${escapeHtml(images[0])}" alt="${escapeHtml(product.name)}"><div class="thumbnails">${images.map((src,i)=>`<button type="button" aria-label="查看第 ${i+1} 张图片" aria-pressed="${i===0}" data-image="${escapeHtml(src)}"><img src="${escapeHtml(src)}" alt="商品图片 ${i+1}"></button>`).join('')}</div></div><div class="detail-copy"><p class="muted">${escapeHtml(product.category.parentName)} / ${escapeHtml(product.category.name)}</p><h2>${escapeHtml(product.name)}</h2><p class="money">${money(product.priceCents)}</p><p>库存：${product.stock} 件</p><div class="notice">${frozen ? '卖家正在与队首客户交易，当前商品只供查看，暂不接受购买意向。' : '购买意向须登录客户账号后提交。交易在线下完成。'}</div><div class="description"><h3>商品描述</h3>${product.description || '<p class="muted">暂无商品描述</p>'}</div></div></div>`;
+      document.querySelectorAll('[data-image]').forEach(button=>button.onclick=()=>{ $('.main-image').src=button.dataset.image; document.querySelectorAll('[data-image]').forEach(b=>b.setAttribute('aria-pressed',String(b===button))); });
+      $('#back').onclick = event => { event.preventDefault(); const next=new URLSearchParams(location.search);next.delete('product');navigate(next); };
       return;
     }
-
-    const frozen = !product.buyable;
-    $('#product').innerHTML = `
-      <article class="card product-card">
-        <div class="product-media"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}"></div>
-        <div class="product-content">
-          <div class="product-topline"><span class="status-pill ${frozen ? 'status-paused' : 'status-active'}"><span class="status-dot" aria-hidden="true"></span>${frozen ? '暂停接受意向' : '正在接受意向'}</span><span class="product-edition">本期好物</span></div>
-          <h2>${escapeHtml(product.name)}</h2>
-          <p class="product-description">${escapeHtml(product.description)}</p>
-          <div class="product-price"><span>售价</span><strong>${money(product.priceCents)}</strong></div>
-          ${frozen ? '<div class="product-notice"><span aria-hidden="true">✳</span><p>这件商品暂时不接受新的购买意向。已有口令码的朋友，仍可在下方查看进度。</p></div>' : `
-            <div class="product-form-intro"><h3>想把它带回家？</h3><p>留下姓名和电话，我们会按提交顺序联系你。</p></div>
-            <form id="intent" class="stack-form">
-              <div class="form-grid">
-                <label class="field" for="intent-name"><span class="field-label">怎么称呼你</span><input id="intent-name" name="name" placeholder="你的姓名" autocomplete="name" required></label>
-                <label class="field" for="intent-phone"><span class="field-label">联系电话</span><input id="intent-phone" name="phone" type="tel" placeholder="方便联系你的电话" autocomplete="tel" required></label>
-              </div>
-              <button class="button" type="submit">提交购买意向 <span aria-hidden="true">→</span></button>
-              <p class="form-note">提交后会得到一个口令码，记得保存好。</p>
-            </form>`}
-        </div>
-      </article>`;
-
-    if (!frozen) $('#intent').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const submitButton = event.target.querySelector('button[type="submit"]');
-      submitButton.disabled = true;
-      try {
-        const data = await request('/api/intents', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(Object.fromEntries(new FormData(event.target)))
-        });
-        currentCode = data.passcode;
-        $('#passcodeValue').textContent = data.passcode;
-        $('#passcodeCard').hidden = false;
-        message('');
-        event.target.reset();
-        $('#passcodeCard').focus();
-        $('#passcodeCard').scrollIntoView({
-          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-          block: 'center'
-        });
-      } catch (error) { message(error.message); }
-      finally { submitButton.disabled = false; }
-    });
+    $('#query').value = params.get('q') || ''; $('#category').value = params.get('categoryId') || '';
+    const query = new URLSearchParams();
+    for (const key of ['q','categoryId','page']) if (params.get(key)) query.set(key,params.get(key));
+    $('#list').innerHTML = '<p class="muted">正在加载在售商品…</p>';
+    const data = await api(`/api/products?${query}`);
+    if (sequence !== requestId) return;
+    $('#result-count').textContent = `共 ${data.total} 件在售商品`;
+    $('#list').innerHTML = data.items.length ? data.items.map(p=>`<a class="listing" href="?product=${p.id}"><img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name)}" loading="lazy"><div class="listing-body"><span class="category">${escapeHtml(p.category.parentName)} / ${escapeHtml(p.category.name)}</span><h2>${escapeHtml(p.name)}</h2><span class="money">${money(p.priceCents)}</span></div></a>`).join('') : '<div class="empty">没有找到在售商品，请调整关键词或类别后重试。</div>';
+    document.querySelectorAll('.listing').forEach(link=>link.onclick=event=>{ event.preventDefault(); const next=new URLSearchParams(location.search); next.set('product',new URL(link.href).searchParams.get('product')); navigate(next); });
+    $('#pagination').innerHTML = `<button class="secondary" id="previous" ${data.page<=1?'disabled':''}>上一页</button><span>第 ${data.page} / ${Math.max(1,data.totalPages)} 页</span><button class="secondary" id="next" ${data.page>=data.totalPages?'disabled':''}>下一页</button>`;
+    $('#previous').onclick=()=>changePage(data.page-1); $('#next').onclick=()=>changePage(data.page+1);
   } catch (error) {
-    $('#product').innerHTML = '<div class="card empty-state"><span class="empty-mark" aria-hidden="true">✳</span><h2>这件好物暂时没加载出来</h2><p>请稍后刷新页面再试。</p></div>';
-    message(error.message);
+    if (sequence !== requestId) return;
+    $('#message').textContent=error.message;
+    if (params.has('product')) $('#detail').innerHTML='<div class="empty"><h2>商品不存在或已下架</h2><a href="/">返回商品列表</a></div>';
+    else $('#list').innerHTML='<div class="empty">商品加载失败，请稍后重试。</div>';
   }
 }
-
-$('#query').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const submitButton = event.target.querySelector('button[type="submit"]');
-  submitButton.disabled = true;
-  currentCode = new FormData(event.target).get('passcode').trim().toUpperCase();
-  $('#edit').hidden = true;
-  $('#queryResult').textContent = '';
-  try {
-    const data = await request('/api/intents/query', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passcode: currentCode })
-    });
-    $('#queryResult').textContent = data.stage === 'trading' ? '当前进度：正在交易中' : `当前排队进度：第 ${data.position} 位`;
-    $('#edit').reset();
-    $('#edit').hidden = false;
-    message('');
-  } catch (error) {
-    $('#queryResult').textContent = '';
-    $('#edit').hidden = true;
-    message(error.message);
-  } finally { submitButton.disabled = false; }
-});
-
-$('#edit').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const submitButton = event.target.querySelector('button[type="submit"]');
-  submitButton.disabled = true;
-  try {
-    await request('/api/intents', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...Object.fromEntries(new FormData(event.target)), passcode: currentCode })
-    });
-    message('联系信息已更新。', 'success');
-  } catch (error) { message(error.message); }
-  finally { submitButton.disabled = false; }
-});
-
-$('#cancel').addEventListener('click', async () => {
-  if (!confirm('确定撤销意向吗？')) return;
-  const button = $('#cancel');
-  button.disabled = true;
-  try {
-    await request('/api/intents/cancel', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passcode: currentCode })
-    });
-    $('#edit').hidden = true;
-    $('#queryResult').textContent = '意向已撤销。';
-    message('');
-  } catch (error) { message(error.message); }
-  finally { button.disabled = false; }
-});
-
-loadProduct();
+function navigate(params) { history.pushState(null,'',`/?${params}`); render(); }
+function changePage(page) { const params=new URLSearchParams(location.search);params.set('page',page);navigate(params); }
+$('#search-form').onsubmit=event=>{event.preventDefault();const params=new URLSearchParams();if($('#query').value.trim())params.set('q',$('#query').value.trim());if($('#category').value)params.set('categoryId',$('#category').value);navigate(params);};
+$('#category').onchange=()=>$('#search-form').requestSubmit();
+$('#reset').onclick=()=>{navigate(new URLSearchParams());};
+window.onpopstate=render;
+api('/api/categories').then(tree=>{ $('#category').innerHTML='<option value="">全部类别</option>'+tree.map(parent=>`<optgroup label="${escapeHtml(parent.name)}">${parent.children.map(child=>`<option value="${child.id}">${escapeHtml(child.name)}</option>`).join('')}</optgroup>`).join('');render(); }).catch(error=>{$('#message').textContent=error.message;render();});
