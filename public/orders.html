@@ -9,8 +9,9 @@
 <main class="login-main"><section class="panel">
 <div class="order-head"><div><p class="eyebrow">历史下单记录</p><h1>我的订单</h1></div>
 <div><span id="who" class="muted"></span> <button id="logout" type="button" class="secondary">退出登录</button></div></div>
-<p class="muted">仅展示已有交易结果（成功 / 失败）的记录，按时间倒序，只读不可删除；排队中与交易中的记录不在此列。</p>
+<p class="muted">下方先列出进行中的下单（排队中 / 交易中），再列出已有交易结果（成功 / 失败）的记录；历史按时间倒序、只读不可删除。</p>
 <p id="message" role="alert" class="error"></p>
+<div id="pending"></div>
 <div id="content"></div>
 <nav id="pagination" class="pagination" aria-label="历史记录分页"></nav>
 </section></main>
@@ -40,9 +41,20 @@ async function load(page){
     document.querySelector('#message').textContent=e.message||'加载失败，请稍后重试';
   }
 }
+async function loadPending(){
+  const box=document.querySelector('#pending');
+  try{
+    const data=await api('/api/customer/intents');
+    if(!data.items.length){box.innerHTML='';return;}
+    box.innerHTML=`<h2 style="margin-top:1.4rem">进行中的下单</h2><table class="orders-table"><thead><tr><th>商品名称</th><th>下单时间</th><th>当前状态</th></tr></thead><tbody>${
+      data.items.map(o=>`<tr><td>${escapeHtml(o.productName)}</td><td>${escapeHtml(fmtTime(o.submittedAt))}</td><td>${o.stage==='trading'?'交易中':`排队中 · 第 ${escapeHtml(o.position)} 位`}</td></tr>`).join('')
+    }</tbody></table>`;
+  }catch(e){box.innerHTML='';}
+}
 (async()=>{
   try{const me=await api('/api/customer/me');document.querySelector('#who').textContent=`当前用户：${me.username}`;}
   catch(e){location.href='/customer-login.html';return;}
+  loadPending();
   load(1);
 })();
 document.querySelector('#logout').onclick=async()=>{

@@ -35,4 +35,11 @@ public interface IntentRepository extends JpaRepository<IntentEntity, Long> {
      * 按下单时间（submittedAt）倒序、id 倒序（与排队顺序的升序约定互为镜像）。
      */
     List<IntentEntity> findByCustomerIdAndStageOrderBySubmittedAtDescIdDesc(Long customerId, IntentStage stage);
+
+    /**
+     * 某客户的"进行中"下单记录（排队中 / 交易中），按提交时间倒序。
+     * 用于"我的订单"页展示未终结的记录（FR-C-07 的历史只含终态）。
+     */
+    List<IntentEntity> findByCustomerIdAndStageInOrderBySubmittedAtDescIdDesc(Long customerId,
+                                                                              java.util.Collection<IntentStage> stages);
 }

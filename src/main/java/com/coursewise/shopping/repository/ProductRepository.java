@@ -23,4 +23,15 @@ public interface ProductRepository extends JpaRepository<ProductEntity, Long>, o
 
     /** 历史商品：全部已下架商品，按发布时间倒序（FR-S-08）。 */
     List<ProductEntity> findByStatusOrderByIdDesc(ProductStatus status);
+
+    /** 交易工作台：在售 / 冻结 / 售罄等需要处理的商品。 */
+    List<ProductEntity> findByStatusInOrderByIdDesc(java.util.Collection<ProductStatus> statuses);
+
+    /**
+     * 历史商品：发生过交易结果（成功或失败）的商品，按结果时间倒序。
+     *
+     * <p>口径与"已下架"不同：交易失败的商品仍回到在售，但按需求要出现在历史商品列表；
+     * 手动下架与售罄的商品 result 为空，天然不进列表。
+     */
+    List<ProductEntity> findByResultIsNotNullOrderByResultAtDescIdDesc();
 }
