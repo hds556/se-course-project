@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>拾物小店 · 商品浏览</title><link rel="stylesheet" href="/catalog.css"><script src="/app.js" defer></script></head>
-<body><header><a class="brand" href="/">拾物小店 <small>GOOD THINGS, SIMPLY SHARED</small></a><a href="/admin.html">卖家后台 ↗</a></header>
+<body><header><a class="brand" href="/">拾物小店 <small>GOOD THINGS, SIMPLY SHARED</small></a><nav id="user-nav"><a href="/orders.html">我的订单</a><a href="/customer-login.html">客户登录</a><a href="/register.html">注册</a><a href="/admin.html">卖家后台 ↗</a></nav></header>
 <main><section class="intro"><p class="eyebrow">日常好物，慢慢挑选</p><h1>找到一件<br><em>刚刚好的好物</em></h1><p>浏览在售商品，了解细节，线下见面交易。</p></section>
 <section id="catalog" aria-label="商品列表"><form id="search-form" class="filters"><label>搜索商品<input id="query" name="q" placeholder="搜索名称或描述" type="search"></label><label>所属类别<select id="category" name="categoryId"><option value="">全部类别</option></select></label><button>搜索</button><button id="reset" type="button" class="secondary">重置</button></form><p id="result-count" class="muted" aria-live="polite"></p><div id="list" class="product-grid"></div><nav id="pagination" class="pagination" aria-label="商品分页"></nav></section>
 <section id="detail" hidden aria-label="商品详情"></section><p id="message" role="alert"></p></main>
-<footer>拾物小店 · 线下交易，安心挑选</footer></body></html>
+<footer>拾物小店 · 线下交易，安心挑选</footer>
+<script>const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));fetch('/api/customer/me').then(r=>{if(!r.ok)return;return r.json()}).then(me=>{if(!me)return;const nav=document.querySelector('#user-nav');nav.innerHTML='<a href="/orders.html">我的订单</a><span class="muted">当前用户：'+esc(me.username)+'</span><a href="#" id="nav-logout">退出登录</a><a href="/admin.html">卖家后台 ↗</a>';document.querySelector('#nav-logout').onclick=e=>{e.preventDefault();fetch('/api/customer/logout',{method:'POST'}).then(()=>location.reload())}}).catch(()=>{})</script></body></html>

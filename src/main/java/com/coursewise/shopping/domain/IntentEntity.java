@@ -20,6 +20,7 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "intent", indexes = {
         @Index(name = "idx_intent_product", columnList = "product_id"),
+        @Index(name = "idx_intent_customer", columnList = "customer_id"),
         @Index(name = "idx_intent_queue", columnList = "product_id, stage, submitted_at, id")
 })
 public class IntentEntity {
@@ -38,6 +39,14 @@ public class IntentEntity {
      */
     @Column(name = "product_id", nullable = false)
     private Long productId;
+
+    /**
+     * 关联客户（需求分析 V3.5 §5.4"关联客户"）。客户提交意向（下单）时填入；
+     * <b>为 null 表示升级前的匿名意向</b>——按 T-38 不迁移、不展示、不进任何客户历史。
+     * 同样不建数据库外键，一致性由服务层保证。
+     */
+    @Column(name = "customer_id")
+    private Long customerId;
 
     /** 姓名（可凭口令码修改，BR-12）。 */
     @Column(nullable = false, length = 64)
@@ -69,6 +78,13 @@ public class IntentEntity {
     @Column(length = 16)
     private IntentOutcome outcome;
 
+    /**
+     * 交易时间（需求分析 V3.5 §5.4）：标记交易结果的那一刻的系统时间戳；
+     * 未终结时为 null。
+     */
+    @Column(name = "closed_at", length = 32)
+    private String closedAt;
+
     public Long getId() {
         return id;
     }
@@ -83,6 +99,14 @@ public class IntentEntity {
 
     public void setProductId(Long productId) {
         this.productId = productId;
+    }
+
+    public Long getCustomerId() {
+        return customerId;
+    }
+
+    public void setCustomerId(Long customerId) {
+        this.customerId = customerId;
     }
 
     public String getName() {
@@ -131,6 +155,14 @@ public class IntentEntity {
 
     public void setOutcome(IntentOutcome outcome) {
         this.outcome = outcome;
+    }
+
+    public String getClosedAt() {
+        return closedAt;
+    }
+
+    public void setClosedAt(String closedAt) {
+        this.closedAt = closedAt;
     }
 
     /** 是否仍在排队（位次有效）。 */

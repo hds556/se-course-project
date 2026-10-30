@@ -146,6 +146,7 @@ public class ShoppingService {
         IntentEntity intent = activeIntent(passcode);
         intent.setStage(IntentStage.closed);
         intent.setOutcome(IntentOutcome.cancelled);
+        intent.setClosedAt(now());
         intents.save(intent);
     }
 
@@ -327,11 +328,13 @@ public class ShoppingService {
         }
         buyer.setStage(IntentStage.closed);
         buyer.setOutcome(IntentOutcome.success);
+        buyer.setClosedAt(now());
         intents.save(buyer);
         for (IntentEntity item : allIntents(product.getId())) {
             if (item.getStage() != IntentStage.closed) {
                 item.setStage(IntentStage.closed);
                 item.setOutcome(IntentOutcome.unsold);
+                item.setClosedAt(now());
                 intents.save(item);
             }
         }
@@ -355,6 +358,7 @@ public class ShoppingService {
             throw error(HttpStatus.CONFLICT, "当前没有交易中的意向");
         }
         buyer.setStage(IntentStage.closed);
+        buyer.setClosedAt(now());
         ObjectNode result = mapper.createObjectNode().put("ok", true);
         if ("requeue".equals(disposition)) {
             buyer.setOutcome(IntentOutcome.requeued);

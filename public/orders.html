@@ -1,0 +1,52 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>历史下单记录 · 拾物小店</title><link rel="stylesheet" href="/catalog.css"><style>
+.orders-table{width:100%;border-collapse:collapse;margin-top:1rem}
+.orders-table th,.orders-table td{text-align:left;padding:.6rem .75rem;border-bottom:1px solid #e5e1da;font-size:.95rem}
+.orders-table th{color:#7a736a;font-weight:600;font-size:.85rem}
+.result-success{color:#1a7f37;font-weight:600}.result-fail{color:#b3261e;font-weight:600}
+.order-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap}
+</style></head><body>
+<header><a class="brand" href="/">拾物小店 <small>MY ORDER HISTORY</small></a><a href="/">返回小店 ↗</a></header>
+<main class="login-main"><section class="panel">
+<div class="order-head"><div><p class="eyebrow">历史下单记录</p><h1>我的订单</h1></div>
+<div><span id="who" class="muted"></span> <button id="logout" type="button" class="secondary">退出登录</button></div></div>
+<p class="muted">仅展示已有交易结果（成功 / 失败）的记录，按时间倒序，只读不可删除；排队中与交易中的记录不在此列。</p>
+<p id="message" role="alert" class="error"></p>
+<div id="content"></div>
+<nav id="pagination" class="pagination" aria-label="历史记录分页"></nav>
+</section></main>
+<script>
+'use strict';
+const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtTime=v=>{if(!v)return '—';const d=new Date(v);return isNaN(d)?v:d.toLocaleString('zh-CN',{hour12:false});};
+async function api(url){const r=await fetch(url);const b=await r.json();if(!r.ok)throw Error(b.error||'请求失败');return b;}
+async function load(page){
+  const content=document.querySelector('#content'),pagination=document.querySelector('#pagination');
+  document.querySelector('#message').textContent='';
+  content.innerHTML='<p class="muted">正在加载历史下单记录…</p>';
+  try{
+    const data=await api(`/api/customer/orders?page=${page}&size=10`);
+    if(!data.items.length){
+      content.innerHTML='<div class="empty"><h2>暂无历史下单记录</h2><p>已有交易结果（成功/失败）的订单会出现在这里。</p><a href="/">去逛逛商品</a></div>';
+      pagination.innerHTML='';return;
+    }
+    content.innerHTML=`<table class="orders-table"><thead><tr><th>商品名称</th><th>下单时间</th><th>交易结果</th><th>交易时间</th></tr></thead><tbody>${
+      data.items.map(o=>`<tr><td>${escapeHtml(o.productName)}</td><td>${escapeHtml(fmtTime(o.submittedAt))}</td><td><span class="${o.result==='成功'?'result-success':'result-fail'}">${escapeHtml(o.result)}</span></td><td>${escapeHtml(fmtTime(o.closedAt))}</td></tr>`).join('')
+    }</tbody></table>`;
+    pagination.innerHTML=`<button class="secondary" id="previous" ${data.page<=1?'disabled':''}>上一页</button><span>第 ${data.page} / ${data.totalPages} 页（共 ${data.total} 条）</span><button class="secondary" id="next" ${data.page>=data.totalPages?'disabled':''}>下一页</button>`;
+    document.querySelector('#previous').onclick=()=>load(data.page-1);
+    document.querySelector('#next').onclick=()=>load(data.page+1);
+  }catch(e){
+    content.innerHTML='';
+    document.querySelector('#message').textContent=e.message||'加载失败，请稍后重试';
+  }
+}
+(async()=>{
+  try{const me=await api('/api/customer/me');document.querySelector('#who').textContent=`当前用户：${me.username}`;}
+  catch(e){location.href='/customer-login.html';return;}
+  load(1);
+})();
+document.querySelector('#logout').onclick=async()=>{
+  await fetch('/api/customer/logout',{method:'POST'});
+  location.href='/customer-login.html';
+};
+</script></body></html>

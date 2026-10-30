@@ -29,4 +29,10 @@ public interface IntentRepository extends JpaRepository<IntentEntity, Long> {
 
     /** 某商品下指定阶段的意向数量。 */
     long countByProductIdAndStage(Long productId, IntentStage stage);
+
+    /**
+     * 某客户的终态意向（FR-C-07 历史下单记录）：stage=closed 即已有交易结果（成功/失败）。
+     * 按下单时间（submittedAt）倒序、id 倒序（与排队顺序的升序约定互为镜像）。
+     */
+    List<IntentEntity> findByCustomerIdAndStageOrderBySubmittedAtDescIdDesc(Long customerId, IntentStage stage);
 }
