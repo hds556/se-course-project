@@ -1,7 +1,8 @@
 'use strict';
 const $=selector=>document.querySelector(selector);
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let tree=[], inventoryPage=1, previewUrls=[];
+const fmtTime=v=>{if(!v)return '—';const d=new Date(v);return isNaN(d)?v:d.toLocaleString('zh-CN',{hour12:false});};
+let tree=[], inventoryPage=1, customersPage=1, previewUrls=[];
 const states={active:'在售',resumed:'在售',frozen:'已冻结',sold:'已售（终态）',depleted:'售罄下架',withdrawn:'手动下架'};
 async function api(url,options={}){const r=await fetch(url,options);const data=await r.json();if(r.status===401){location.href='/login.html';throw Error('登录已失效');}if(!r.ok){const e=Error(data.error||'操作失败');e.fields=data.fieldErrors||{};throw e;}return data;}
 function json(method,body){return {method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};}
@@ -78,4 +79,14 @@ $('#trade-list').onclick=async event=>{
   try{ await api(url, body?json('POST',body):{method:'POST'}); await loadInventory(); await loadTrade(); notice(tip); }
   catch(e){ button.disabled=false; notice(e.message,true); }
 };
-Promise.all([loadCategories(),loadInventory(),loadTrade()]).then(()=>tab(['publish','categories','trade'].includes(location.hash.slice(1))?location.hash.slice(1):'inventory')).catch(e=>notice(e.message,true));
+/* ===== V2.0 客户列表与客户购买历史（周展羽，FR-S-13 / FR-S-14）===== */
+async function loadCustomers(){
+  const result=await api(`/api/admin/customers?page=${customersPage}&size=10`);
+  $('#customers-body').innerHTML=result.items.length?result.items.map(c=>`<tr><td>${esc(c.username)}</td><td>${esc(c.phone)}</td><td>${esc(c.defaultPlace)}</td><td>${esc(fmtTime(c.registeredAt))}</td><td><button class="secondary" data-orders="${c.id}">查看购买历史</button></td></tr>`).join(''):'<tr><td colspan="5">还没有注册客户，客户在前台注册后会出现在这里。</td></tr>';
+  $('#customers-pagination').innerHTML=`<button class="secondary" id="customers-prev" ${customersPage<=1?'disabled':''}>上一页</button><span>第 ${customersPage} / ${Math.max(1,result.totalPages)} 页，共 ${result.total} 位客户</span><button class="secondary" id="customers-next" ${customersPage>=result.totalPages?'disabled':''}>下一页</button>`;
+  $('#customers-prev').onclick=()=>{customersPage--;loadCustomers().catch(e=>notice(e.message,true));};
+  $('#customers-next').onclick=()=>{customersPage++;loadCustomers().catch(e=>notice(e.message,true));};
+}
+$('#refresh-customers').onclick=()=>loadCustomers().then(()=>notice('已刷新')).catch(e=>notice(e.message,true));
+$('#customers-body').onclick=event=>{const button=event.target.closest('[data-orders]');if(button)location.href=`/customer-purchases.html?id=${button.dataset.orders}`;};
+Promise.all([loadCategories(),loadInventory(),loadTrade(),loadCustomers()]).then(()=>tab(['publish','categories','trade','customers'].includes(location.hash.slice(1))?location.hash.slice(1):'inventory')).catch(e=>notice(e.message,true));
