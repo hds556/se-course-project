@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>我的收藏 · 拾物小店</title>
+  <link rel="stylesheet" href="/catalog.css">
+  <script src="/shop.js" defer></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">拾物小店 <small>MY FAVORITES</small></a>
+  <nav id="user-nav"></nav>
+</header>
+
+<main>
+  <section class="intro compact">
+    <p class="eyebrow">我的收藏</p>
+    <h1>留住感兴趣的好物</h1>
+    <p>点卡片可进入商品详情。已下架的商品会标注「已下架」，仍可查看只读详情。</p>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <h2>收藏清单</h2>
+      <button id="refresh" type="button" class="secondary">刷新</button>
+    </div>
+    <p id="notice" role="status" aria-live="polite" hidden></p>
+    <div id="favorite-content"><p class="muted">正在加载收藏…</p></div>
+  </section>
+</main>
+
+<footer>拾物小店 · 线下交易，安心挑选</footer>
+
+<script>
+'use strict';
+
+/**
+ * 收藏卡片：只提供「查看详情」与「取消收藏」。
+ * 按 FR-C-06，收藏列表<b>不提供</b>加入购物车与立即购买入口。
+ */
+function card(item) {
+  const offline = !item.available;
+  return `<article class="favorite-card ${offline ? 'offline' : ''}" data-product="${item.productId}">
+    <a class="favorite-link" href="/?product=${item.productId}">
+      <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
+      <span class="badge ${offline ? 'badge-offline' : 'badge-active'}">${esc(item.statusLabel)}</span>
+    </a>
+    <div class="favorite-body">
+      <a class="favorite-name" href="/?product=${item.productId}">${esc(item.name)}</a>
+      <span class="money">${money(item.priceCents)}</span>
+      <span class="muted">收藏于 ${fmtTime(item.favoritedAt)}</span>
+      <div class="actions">
+        <a class="button-link" href="/?product=${item.productId}">查看详情</a>
+        <button type="button" class="secondary" data-unfavorite="${item.productId}">取消收藏</button>
+      </div>
+    </div>
+  </article>`;
+}
+
+async function load() {
+  const box = document.querySelector('#favorite-content');
+  try {
+    const data = await request('/api/favorites');
+    const items = data.items || [];
+    if (!items.length) {
+      box.innerHTML = '<div class="empty"><h2>还没有收藏任何商品</h2>'
+        + '<p>在商品详情页点「收藏」即可加入这里。</p><a href="/">去逛逛商品</a></div>';
+      return;
+    }
+    box.innerHTML = `<div class="favorite-grid">${items.map(card).join('')}</div>`;
+  } catch (error) {
+    if (error.status === 401) { toLogin(); return; }
+    box.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+  }
+}
+
+document.querySelector('#favorite-content').onclick = async event => {
+  const button = event.target.closest('[data-unfavorite]');
+  if (!button) return;
+  event.preventDefault();
+  button.disabled = true;
+  try {
+    await del(`/api/favorites/${button.dataset.unfavorite}`);
+    setNotice('#notice', '已取消收藏', 'info');
+    await load();
+  } catch (error) {
+    button.disabled = false;
+    setNotice('#notice', error.message, 'error');
+  }
+};
+
+document.querySelector('#refresh').onclick = () => load();
+
+/* 内联脚本先于 defer 的 shop.js 执行，需等 DOMContentLoaded 后再调用其函数 */
+document.addEventListener('DOMContentLoaded', async () => {
+  const me = await currentCustomer();
+  if (!me) { toLogin(); return; }
+  mountUserNav();
+  load();
+});
+</script>
+</body>
+</html>

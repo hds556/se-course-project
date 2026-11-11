@@ -54,12 +54,25 @@ public class CustomerController {
                 .body(Map.of("ok", true));
     }
 
-    /** FR-C-07 历史下单记录：终态记录分页列表，按时间倒序、只读（BR-16）。 */
+    /**
+     * 旧版「历史下单记录」接口。
+     *
+     * <p>迭代 1~3 的成交记录来自「购买意向」表（{@code intent}）。挑战需求B 引入订单制后，
+     * 买家的下单记录统一由 {@link com.coursewise.shopping.order.OrderController}
+     * 的 {@code GET /api/orders} 提供（FR-C-10，含进行中 / 交易完成 / 已取消），
+     * 本接口不再有数据来源，保留路由只返回空列表以兼容旧书签，避免 404。
+     */
     @GetMapping("/api/customer/orders")
     public ObjectNode orders(@CookieValue(name = "customer_session", required = false) String session,
                              @RequestParam(defaultValue = "1") int page,
                              @RequestParam(defaultValue = "10") int size) {
-        return customers.history(session, page, size);
+        customers.requireCustomer(session);
+        ObjectNode result = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        result.set("items", result.arrayNode());
+        result.put("page", Math.max(1, page)).put("size", Math.max(1, size));
+        result.put("total", 0).put("totalPages", 1);
+        result.put("movedTo", "/api/orders");
+        return result;
     }
 
     private ResponseCookie cookie(String value, boolean expired) {

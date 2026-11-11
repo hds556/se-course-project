@@ -1,64 +1,136 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>历史下单记录 · 拾物小店</title><link rel="stylesheet" href="/catalog.css"><style>
-.orders-table{width:100%;border-collapse:collapse;margin-top:1rem}
-.orders-table th,.orders-table td{text-align:left;padding:.6rem .75rem;border-bottom:1px solid #e5e1da;font-size:.95rem}
-.orders-table th{color:#7a736a;font-weight:600;font-size:.85rem}
-.result-success{color:#1a7f37;font-weight:600}.result-fail{color:#b3261e;font-weight:600}
-.order-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap}
-</style></head><body>
-<header><a class="brand" href="/">拾物小店 <small>MY ORDER HISTORY</small></a><a href="/">返回小店 ↗</a></header>
-<main class="login-main"><section class="panel">
-<div class="order-head"><div><p class="eyebrow">历史下单记录</p><h1>我的订单</h1></div>
-<div><span id="who" class="muted"></span> <button id="logout" type="button" class="secondary">退出登录</button></div></div>
-<p class="muted">下方先列出进行中的下单（排队中 / 交易中），再列出已有交易结果（成功 / 失败）的记录；历史按时间倒序、只读不可删除。</p>
-<p id="message" role="alert" class="error"></p>
-<div id="pending"></div>
-<div id="content"></div>
-<nav id="pagination" class="pagination" aria-label="历史记录分页"></nav>
-</section></main>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>我的订单 · 拾物小店</title>
+  <link rel="stylesheet" href="/catalog.css">
+  <script src="/shop.js" defer></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">拾物小店 <small>MY ORDERS</small></a>
+  <nav id="user-nav"></nav>
+</header>
+
+<main>
+  <section class="intro compact">
+    <p class="eyebrow">我的订单</p>
+    <h1>我的全部订单</h1>
+    <p>进行中、交易完成与已取消的订单都在这里，按下单时间倒序排列。订单只读，不可修改与删除。</p>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <h2>订单列表</h2>
+      <button id="refresh" type="button" class="secondary">刷新</button>
+    </div>
+    <p id="notice" role="status" aria-live="polite" hidden></p>
+    <div id="content"><p class="muted">正在加载订单…</p></div>
+    <nav id="pagination" class="pagination" aria-label="订单分页"></nav>
+  </section>
+</main>
+
+<footer>拾物小店 · 线下交易，安心挑选</footer>
+
 <script>
 'use strict';
-const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmtTime=v=>{if(!v)return '—';const d=new Date(v);return isNaN(d)?v:d.toLocaleString('zh-CN',{hour12:false});};
-async function api(url){const r=await fetch(url);const b=await r.json();if(!r.ok)throw Error(b.error||'请求失败');return b;}
-async function load(page){
-  const content=document.querySelector('#content'),pagination=document.querySelector('#pagination');
-  document.querySelector('#message').textContent='';
-  content.innerHTML='<p class="muted">正在加载历史下单记录…</p>';
-  try{
-    const data=await api(`/api/customer/orders?page=${page}&size=10`);
-    if(!data.items.length){
-      content.innerHTML='<div class="empty"><h2>暂无历史下单记录</h2><p>已有交易结果（成功/失败）的订单会出现在这里。</p><a href="/">去逛逛商品</a></div>';
-      pagination.innerHTML='';return;
+let page = 1;
+
+/* 状态标签：进行中（暖色）/ 交易完成（绿）/ 已取消（灰） */
+function statusClass(status) {
+  if (status === 'completed') return 'order-status completed';
+  if (status === 'cancelled') return 'order-status cancelled';
+  return 'order-status progress';
+}
+
+/**
+ * 单条订单：摘要行（订单号、下单时间、总额、状态、操作）+ 行内展开的明细。
+ * 明细直接由接口随订单一起返回，展开时无需再次请求。
+ */
+function row(order) {
+  const lines = order.items.map(line => `<tr>
+      <td>${esc(line.productName)}</td>
+      <td>${money(line.unitPriceCents)}</td>
+      <td>${line.quantity}</td>
+      <td>${money(line.subtotalCents)}</td>
+    </tr>`).join('');
+  const cancel = order.cancellable
+    ? `<button type="button" class="secondary" data-cancel="${order.id}">取消订单</button>`
+    : '';
+  return `<details class="order-card" data-order="${order.id}">
+    <summary>
+      <span class="order-no">订单号 ${esc(order.orderNo)}</span>
+      <span class="muted">${esc(fmtTime(order.createdAt))}</span>
+      <span class="order-count muted">${order.items.length} 种商品</span>
+      <span class="money">${money(order.totalCents)}</span>
+      <span class="${statusClass(order.status)}">${esc(order.statusLabel)}</span>
+      <span class="order-ops">${cancel}</span>
+    </summary>
+    <div class="order-detail">
+      <table class="orders-table">
+        <thead><tr><th>商品名称</th><th>下单单价</th><th>数量</th><th>小计</th></tr></thead>
+        <tbody>${lines}</tbody>
+      </table>
+      <p class="muted">订单合计 ${money(order.totalCents)}。下单后商品价格如有调整，本单明细仍按下单时的单价显示。</p>
+    </div>
+  </details>`;
+}
+
+/* keepNotice=true 时保留当前提示（取消订单后刷新列表，提示不应被清掉） */
+async function load(keepNotice) {
+  const box = document.querySelector('#content');
+  if (!keepNotice) setNotice('#notice', '');
+  try {
+    const data = await request(`/api/orders?page=${page}&size=10`);
+    if (!data.items.length) {
+      box.innerHTML = '<div class="empty"><h2>还没有订单</h2>'
+        + '<p>把心仪的商品加入购物车后，即可在购物车一次性下单。</p><a href="/">去逛逛商品</a></div>';
+      document.querySelector('#pagination').innerHTML = '';
+      return;
     }
-    content.innerHTML=`<table class="orders-table"><thead><tr><th>商品名称</th><th>下单时间</th><th>交易结果</th><th>交易时间</th></tr></thead><tbody>${
-      data.items.map(o=>`<tr><td>${escapeHtml(o.productName)}</td><td>${escapeHtml(fmtTime(o.submittedAt))}</td><td><span class="${o.result==='成功'?'result-success':'result-fail'}">${escapeHtml(o.result)}</span></td><td>${escapeHtml(fmtTime(o.closedAt))}</td></tr>`).join('')
-    }</tbody></table>`;
-    pagination.innerHTML=`<button class="secondary" id="previous" ${data.page<=1?'disabled':''}>上一页</button><span>第 ${data.page} / ${data.totalPages} 页（共 ${data.total} 条）</span><button class="secondary" id="next" ${data.page>=data.totalPages?'disabled':''}>下一页</button>`;
-    document.querySelector('#previous').onclick=()=>load(data.page-1);
-    document.querySelector('#next').onclick=()=>load(data.page+1);
-  }catch(e){
-    content.innerHTML='';
-    document.querySelector('#message').textContent=e.message||'加载失败，请稍后重试';
+    box.innerHTML = data.items.map(row).join('');
+    renderPaging('#pagination', data, next => { page = next; load(); });
+  } catch (error) {
+    if (error.status === 401) { toLogin(); return; }
+    box.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+    document.querySelector('#pagination').innerHTML = '';
   }
 }
-async function loadPending(){
-  const box=document.querySelector('#pending');
-  try{
-    const data=await api('/api/customer/intents');
-    if(!data.items.length){box.innerHTML='';return;}
-    box.innerHTML=`<h2 style="margin-top:1.4rem">进行中的下单</h2><table class="orders-table"><thead><tr><th>商品名称</th><th>下单时间</th><th>当前状态</th></tr></thead><tbody>${
-      data.items.map(o=>`<tr><td>${escapeHtml(o.productName)}</td><td>${escapeHtml(fmtTime(o.submittedAt))}</td><td>${o.stage==='trading'?'交易中':`排队中 · 第 ${escapeHtml(o.position)} 位`}</td></tr>`).join('')
-    }</tbody></table>`;
-  }catch(e){box.innerHTML='';}
-}
-(async()=>{
-  try{const me=await api('/api/customer/me');document.querySelector('#who').textContent=`当前用户：${me.username}`;}
-  catch(e){location.href='/customer-login.html';return;}
-  loadPending();
-  load(1);
-})();
-document.querySelector('#logout').onclick=async()=>{
-  await fetch('/api/customer/logout',{method:'POST'});
-  location.href='/customer-login.html';
-};
-</script></body></html>
+
+/* 取消订单：点一次立即生效，不填原因、不二次确认（FR-C-09）
+   按钮位于 <summary> 内，点击默认会折叠/展开订单，因此同时阻止 click 与 mousedown 的默认行为 */
+document.querySelector('#content').addEventListener('mousedown', event => {
+  if (event.target.closest('[data-cancel]')) event.preventDefault();
+});
+
+document.querySelector('#content').addEventListener('click', async event => {
+  const button = event.target.closest('[data-cancel]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  button.disabled = true;
+  try {
+    const result = await postJson(`/api/orders/${button.dataset.cancel}/cancel`);
+    /* statusLabel 已经是「已取消」，这里不要再加「已」字 */
+    const message = `订单 ${result.orderId} 状态：${result.statusLabel}，商品库存已回补`;
+    await load(true);
+    setNotice('#notice', message, 'success');
+  } catch (error) {
+    button.disabled = false;
+    setNotice('#notice', error.message, 'error');
+  }
+});
+
+document.querySelector('#refresh').onclick = () => load();
+
+/* 内联脚本先于 defer 的 shop.js 执行，需等 DOMContentLoaded 后再调用其函数 */
+document.addEventListener('DOMContentLoaded', async () => {
+  const me = await currentCustomer();
+  if (!me) { toLogin(); return; }
+  mountUserNav();
+  load();
+});
+</script>
+</body>
+</html>

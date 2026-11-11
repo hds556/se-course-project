@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>我的购物车 · 拾物小店</title>
+  <link rel="stylesheet" href="/catalog.css">
+  <script src="/shop.js" defer></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">拾物小店 <small>MY CART</small></a>
+  <nav id="user-nav"></nav>
+</header>
+
+<main>
+  <section class="intro compact">
+    <p class="eyebrow">购物车</p>
+    <h1>挑好了就一起下单</h1>
+    <p>勾选一件或多件商品一次性提交。已下架的商品会自动置灰，不能勾选下单。</p>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading">
+      <h2>购物车清单</h2>
+      <div class="actions">
+        <button id="refresh" type="button" class="secondary">刷新</button>
+      </div>
+    </div>
+    <p id="notice" role="status" aria-live="polite" hidden></p>
+
+    <!-- 勾选后点击这里提交；唯一的下单入口（商品详情页不提供立即购买） -->
+    <div id="checkout-bar" class="cart-checkout" hidden>
+      <span id="selected-summary" class="muted"></span>
+      <strong id="selected-total" class="money"></strong>
+      <button id="submit-order" type="button">提交订单</button>
+    </div>
+
+    <div id="cart-content"><p class="muted">正在加载购物车…</p></div>
+  </section>
+</main>
+
+<footer>拾物小店 · 线下交易，安心挑选</footer>
+
+<script>
+'use strict';
+let cartItems = [];
+/* 勾选状态：只在前端保存，提交时把购物车项 id 交给后端（后端仍以登录客户为过滤条件） */
+const selected = new Set();
+let busy = false;
+
+/* 每个商品行都保留一个空的错误位，提交失败后由 markError 填入逐商品原因 */
+function cell(productId, message) {
+  return `<span class="item-error" data-error-for="${productId}">${message ? esc(message) : ''}</span>`;
+}
+
+function row(item) {
+  const disabled = !item.available;
+  const checked = selected.has(item.id);
+  return `<div class="cart-row ${disabled ? 'offline' : ''}" data-id="${item.id}" data-product="${item.productId}">
+    <label class="cart-check">
+      <input type="checkbox" data-pick="${item.id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+    </label>
+    <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
+    <div class="cart-info">
+      <a href="/?product=${item.productId}">${esc(item.name)}</a>
+      <span class="${disabled ? 'tag-offline' : 'muted'}">${esc(item.statusLabel)}${disabled ? ' · 不可下单' : ` · 可售 ${item.stock} 件`}</span>
+      ${cell(item.productId, '')}
+    </div>
+    <div class="cart-price">${money(item.priceCents)}</div>
+    <div class="cart-qty">
+      <button type="button" class="secondary" data-step="-1" ${disabled ? 'disabled' : ''}>−</button>
+      <input type="number" min="1" step="1" value="${item.quantity}" data-qty="${item.id}" ${disabled ? 'disabled' : ''}>
+      <button type="button" class="secondary" data-step="1" ${disabled ? 'disabled' : ''}>+</button>
+    </div>
+    <div class="cart-subtotal">${money(item.subtotalCents)}</div>
+    <div class="cart-ops"><button type="button" class="secondary" data-remove="${item.id}">移除</button></div>
+  </div>`;
+}
+
+function render() {
+  const box = document.querySelector('#cart-content');
+  if (!cartItems.length) {
+    box.innerHTML = '<div class="empty"><h2>购物车还是空的</h2><p>去商品列表挑几件喜欢的商品吧。</p><a href="/">去逛逛商品</a></div>';
+    document.querySelector('#checkout-bar').hidden = true;
+    return;
+  }
+  box.innerHTML = `<div class="cart-head muted">
+      <span>选择</span><span>商品</span><span>单价</span><span>数量</span><span>小计</span><span>操作</span>
+    </div>${cartItems.map(row).join('')}`;
+  document.querySelector('#checkout-bar').hidden = false;
+  updateSummary();
+}
+
+function updateSummary() {
+  const picked = cartItems.filter(item => selected.has(item.id) && item.available);
+  const total = picked.reduce((sum, item) => sum + item.priceCents * item.quantity, 0);
+  document.querySelector('#selected-summary').textContent = `已选 ${picked.length} 件商品`;
+  document.querySelector('#selected-total').textContent = money(total);
+  document.querySelector('#submit-order').disabled = busy || picked.length === 0;
+}
+
+/* 逐商品错误：记在 itemErrors 里，re-render 之后再回填，避免被列表刷新冲掉 */
+const itemErrors = new Map();
+
+function markErrors(errors) {
+  Object.entries(errors || {}).forEach(([productId, message]) => itemErrors.set(String(productId), message));
+  applyErrors();
+}
+
+function applyErrors() {
+  itemErrors.forEach((message, productId) => {
+    const node = document.querySelector(`[data-error-for="${productId}"]`);
+    if (node) node.textContent = message;
+  });
+}
+
+async function load() {
+  try {
+    const data = await request('/api/cart');
+    cartItems = data.items || [];
+    /* 已被移除或已下架的条目，退出勾选状态 */
+    const alive = new Set(cartItems.filter(item => item.available).map(item => item.id));
+    [...selected].forEach(id => { if (!alive.has(id)) selected.delete(id); });
+    render();
+    applyErrors();
+  } catch (error) {
+    if (error.status === 401) { toLogin(); return; }
+    document.querySelector('#cart-content').innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+  }
+}
+
+/* 事件代理：勾选、加减数量、手工输入数量、移除 */
+document.querySelector('#cart-content').onclick = async event => {
+  const pick = event.target.closest('[data-pick]');
+  const step = event.target.closest('[data-step]');
+  const remove = event.target.closest('[data-remove]');
+
+  if (pick) {
+    if (pick.checked) selected.add(Number(pick.dataset.pick)); else selected.delete(Number(pick.dataset.pick));
+    updateSummary();
+    return;
+  }
+
+  if (step) {
+    const id = Number(step.closest('.cart-row').querySelector('[data-qty]').dataset.qty);
+    const input = step.closest('.cart-row').querySelector('[data-qty]');
+    const next = Number(input.value) + Number(step.dataset.step);
+    if (next < 1) return;
+    await changeQuantity(id, next, input);
+    return;
+  }
+
+  if (remove) {
+    const id = Number(remove.dataset.remove);
+    remove.disabled = true;
+    try {
+      await del(`/api/cart/${id}`);
+      selected.delete(id);
+      setNotice('#notice', '已从购物车移除', 'info');
+      await load();
+    } catch (error) {
+      remove.disabled = false;
+      setNotice('#notice', error.message, 'error');
+    }
+  }
+};
+
+/* 手工改数量：输入框失焦或回车时提交，输入非法则回滚原值 */
+document.querySelector('#cart-content').onchange = async event => {
+  const input = event.target.closest('[data-qty]');
+  if (!input) return;
+  const id = Number(input.dataset.qty);
+  const value = Math.floor(Number(input.value));
+  if (!Number.isFinite(value) || value < 1) { await load(); return; }
+  await changeQuantity(id, value, input);
+};
+
+async function changeQuantity(id, quantity, input) {
+  input.disabled = true;
+  try {
+    await patchJson(`/api/cart/${id}`, { quantity });
+    await load();
+  } catch (error) {
+    input.disabled = false;
+    setNotice('#notice', error.message, 'error');
+  }
+}
+
+/* 提交订单：把勾选的购物车项 id 一次性交给后端 */
+document.querySelector('#submit-order').onclick = async () => {
+  if (busy) return;
+  const ids = cartItems.filter(item => selected.has(item.id) && item.available).map(item => item.id);
+  if (!ids.length) return;
+  busy = true;
+  updateSummary();
+  itemErrors.clear();
+  document.querySelectorAll('[data-error-for]').forEach(node => { node.textContent = ''; });
+  try {
+    const order = await postJson('/api/orders', { cartItemIds: ids });
+    const rejected = order.rejectedItems || {};
+    if (Object.keys(rejected).length) {
+      /* 部分商品缺货：其余商品已成功下单，缺货项保留在购物车并标红 */
+      await load();
+      markErrors(rejected);
+      setNotice('#notice', `订单 ${order.orderNo} 已生成，${order.message}`, 'warn');
+    } else {
+      setNotice('#notice', `下单成功：订单号 ${order.orderNo}，合计 ${money(order.totalCents)}`, 'success');
+      await load();
+    }
+    selected.clear();
+    updateSummary();
+    setTimeout(() => { location.href = '/orders.html'; }, 900);
+  } catch (error) {
+    if (error.status === 401) { toLogin(); return; }
+    /* 全部勾选项都无法下单：不生成订单，刷新列表后逐条标红 */
+    await load();
+    markErrors(error.itemErrors);
+    setNotice('#notice', error.message, 'error');
+  } finally {
+    busy = false;
+    updateSummary();
+  }
+};
+
+document.querySelector('#refresh').onclick = () => load();
+
+/* 本页内联脚本先于 defer 的 shop.js 执行，因此必须等 DOMContentLoaded 之后再调用其函数 */
+document.addEventListener('DOMContentLoaded', async () => {
+  const me = await currentCustomer();
+  if (!me) { toLogin(); return; }
+  mountUserNav();
+  load();
+});
+</script>
+</body>
+</html>

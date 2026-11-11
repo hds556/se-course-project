@@ -18,3 +18,75 @@ header nav{display:flex;align-items:center;gap:22px;flex-wrap:wrap;font-size:14p
 .trade-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
 .trade-actions button{font-size:13px;padding:9px 16px}
 .badge{font-size:12px;padding:3px 10px;border-radius:999px;background:#efe8dd;color:#78604e}
+
+/* ===== 挑战需求B · 开发A：收藏 / 购物车 / 我的订单 ===== */
+#notice{margin:6px 0 18px;font-size:14px;color:var(--green)}
+#notice[data-kind="error"]{color:var(--red)}
+#notice[data-kind="warn"]{color:#8a5a1e}
+#action-message,#intent-message{margin:12px 0 0;font-size:14px;color:var(--green)}
+#action-message[data-kind="error"]{color:var(--red)}
+.detail-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:16px}
+.detail-actions button[data-favorited="true"]{border-color:#c9a24b;color:#8a5a1e;background:#fdf6e6}
+
+/* 购物车 */
+.cart-checkout{display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:flex-end;
+  padding:14px 18px;margin:8px 0 18px;background:#f1eae1;border-radius:12px}
+.cart-checkout .money{font-size:22px}
+.cart-head,.cart-row{display:grid;grid-template-columns:40px 88px minmax(0,1fr) 104px 148px 100px 84px;
+  gap:14px;align-items:center}
+.cart-head{padding:0 0 10px;border-bottom:1px solid var(--line);font-size:12px}
+/* 表头没有缩略图列：第 2 列（商品）跨两列，与数据行的「图片 + 名称」对齐 */
+.cart-head>span:nth-child(2){grid-column:2 / span 2}
+.cart-row{padding:14px 0;border-bottom:1px solid var(--line)}
+.cart-row img{width:76px;height:64px;object-fit:cover;border-radius:8px;background:#ece3d8}
+.cart-row.offline{opacity:.6}
+.cart-info{display:flex;flex-direction:column;gap:4px;min-width:0}
+.cart-info a{font-weight:650;overflow-wrap:anywhere}
+.cart-qty{display:flex;align-items:center;gap:6px}
+.cart-qty button{padding:6px 12px;font-size:14px}
+.cart-qty input{width:56px;text-align:center;padding:7px 4px}
+.cart-price,.cart-subtotal{font-size:14px}
+.cart-subtotal{font-weight:650;color:var(--accent)}
+.cart-ops button{font-size:12px;padding:7px 12px}
+.item-error{font-size:12px;color:var(--red);display:block}
+.item-error:empty{display:none}
+.tag-offline{font-size:12px;color:var(--red)}
+
+/* 收藏 */
+.favorite-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+.favorite-card{border:1px solid var(--line);border-radius:15px;background:var(--surface);overflow:hidden;display:flex;flex-direction:column}
+.favorite-card.offline{background:#f7f3ed}
+.favorite-link{position:relative;display:block}
+.favorite-link img{width:100%;height:180px;object-fit:cover;display:block;background:#ece3d8}
+.favorite-body{padding:16px 18px 20px;display:flex;flex-direction:column;gap:8px}
+.favorite-name{font-weight:650;font-size:17px;overflow-wrap:anywhere}
+.badge-active{position:absolute;top:10px;left:10px;background:#e6f0e9;color:var(--green)}
+.badge-offline{position:absolute;top:10px;left:10px;background:#f6e2e2;color:var(--red)}
+.favorite-body .actions{margin-top:6px;gap:10px}
+.favorite-body .button-link,.favorite-body button{font-size:13px;padding:8px 14px}
+
+/* 我的订单 */
+.order-card{border:1px solid var(--line);border-radius:12px;margin-bottom:14px;background:var(--surface)}
+.order-card>summary{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1.3fr) 90px 110px 96px 110px;
+  gap:12px;align-items:center;padding:16px 18px;cursor:pointer;list-style:none;font-size:14px}
+.order-card>summary::-webkit-details-marker{display:none}
+.order-card[open]>summary{border-bottom:1px solid var(--line)}
+.order-no{font-weight:650;font-family:Consolas,monospace;letter-spacing:.4px}
+.order-detail{padding:8px 18px 18px}
+.order-status{font-size:13px;font-weight:600;padding:3px 10px;border-radius:999px;justify-self:start}
+.order-status.progress{background:#fdf1e5;color:#95551f}
+.order-status.completed{background:#e6f0e9;color:var(--green)}
+.order-status.cancelled{background:#efece8;color:var(--muted)}
+.order-ops{justify-self:end}
+.order-ops button{font-size:12px;padding:7px 14px}
+.orders-table{width:100%;border-collapse:collapse;margin-top:8px}
+.orders-table th,.orders-table td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);font-size:13px}
+.orders-table th{color:var(--muted);font-weight:600}
+
+@media(max-width:800px){
+  .cart-head{display:none}
+  .cart-row{grid-template-columns:36px 64px minmax(0,1fr);row-gap:10px}
+  .cart-price,.cart-qty,.cart-subtotal,.cart-ops{grid-column:2 / -1}
+  .favorite-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .order-card>summary{grid-template-columns:1fr 1fr;row-gap:8px}
+}
