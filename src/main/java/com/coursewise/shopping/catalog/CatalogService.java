@@ -89,9 +89,9 @@ public class CatalogService {
     public ObjectNode detail(long id, boolean admin, String session) {
         if (admin) auth.requireSession(session);
         ProductEntity p = requireProduct(id);
-        if (!admin && !p.isBuyable() && p.getStatus() != ProductStatus.frozen) throw missing();
+        if (!admin && (!p.isBuyable() || p.getStock() <= 0)) throw missing();
         ObjectNode result = view(p, true);
-        result.put("readOnly", p.getStatus() == ProductStatus.frozen);
+        result.put("readOnly", !p.isBuyable() || p.getStock() <= 0);
         return result;
     }
 
@@ -146,12 +146,8 @@ public class CatalogService {
                               String description, List<MultipartFile> images) {
         auth.requireSession(session);
         return write(() -> {
-            if (name == null || name.isBlank() || name.strip().codePointCount(0, name.strip().length()) > 128)
-                throw bad("name", "商品名称必填，最多 128 个字符");
-            if (price == null || !price.matches("(?:0|[1-9]\\d{0,6})(?:\\.\\d{1,2})?"))
-                throw bad("price", "价格须大于 0 且不超过 9,999,999.99 元，最多两位小数");
-            long cents = new BigDecimal(price).movePointRight(2).longValueExact();
-            if (cents < 1 || cents > 999999999L) throw bad("price", "价格须大于 0 且不超过 9,999,999.99 元");
+            String validName = productName(name);
+            long cents = priceCents(price);
             if (stock == null || stock < 1) throw bad("stock", "发布库存必须为大于等于 1 的整数");
             CategoryEntity category = requireLeaf(categoryId);
             List<MultipartFile> files = images == null ? List.of() : images;
@@ -161,12 +157,67 @@ public class CatalogService {
             ArrayNode paths = mapper.createArrayNode();
             for (ImageData image : checked) paths.add(saveImage(image));
             ProductEntity p = new ProductEntity();
-            p.setName(name.strip()); p.setPriceCents(cents); p.setStock(stock); p.setCategoryId(category.getId());
+            p.setName(validName); p.setPriceCents(cents); p.setStock(stock); p.setCategoryId(category.getId());
             p.setDescription(html); p.setDescriptionText(Jsoup.parse(html).text().toLowerCase(Locale.ROOT));
             p.setImagesJson(paths.toString()); p.setImage(paths.isEmpty() ? "" : paths.get(0).asText());
             p.setStatus(ProductStatus.active); p.setCreatedAt(Instant.now().toString());
             return view(products.saveAndFlush(p), true);
         });
+    }
+
+    /** 收藏权限由控制器验证；该入口只读，不改变商品状态。 */
+    @Transactional(readOnly = true)
+    public ObjectNode favoriteDetail(long id) {
+        ProductEntity p = requireProduct(id);
+        ObjectNode result = view(p, true);
+        result.put("readOnly", !p.isBuyable() || p.getStock() <= 0);
+        return result;
+    }
+
+    /** 商品内容编辑与库存状态维护隔离，订单快照不随商品内容变化。 */
+    public ObjectNode editContent(String session, long id, Long version, String name, String price,
+                                  Long categoryId, String description, List<String> retainedImages,
+                                  List<MultipartFile> images) {
+        auth.requireSession(session);
+        return write(() -> {
+            ProductEntity p = requireProduct(id);
+            if (!p.isBuyable() || p.getStock() <= 0) throw conflict("product", "已下架商品只读，不能编辑商品信息");
+            if (version == null || version != p.getVersion()) throw conflict("version", "商品已更新，请刷新后再编辑");
+            String validName = productName(name);
+            long cents = priceCents(price);
+            CategoryEntity category = requireLeaf(categoryId);
+            List<String> kept = retainedImages == null ? List.of() : retainedImages;
+            List<MultipartFile> added = images == null ? List.of() : images;
+            if (kept.size() + added.size() > 9) throw bad("images", "商品图片最多 9 张");
+            if (new HashSet<>(kept).size() != kept.size()) throw bad("images", "不能重复保留同一张图片");
+            try {
+                Set<String> original = new HashSet<>();
+                for (var image : mapper.readTree(p.getImagesJson() == null ? "[]" : p.getImagesJson())) original.add(image.asText());
+                if (!original.containsAll(kept)) throw bad("images", "只能保留本商品已有的图片");
+            } catch (IOException e) { throw new IllegalStateException(e); }
+            List<ImageData> checked = added.stream().map(this::validateImage).toList();
+            String html = cleanDescription(description);
+            ArrayNode paths = mapper.createArrayNode();
+            kept.forEach(paths::add);
+            checked.forEach(image -> paths.add(saveImage(image)));
+            p.setName(validName); p.setPriceCents(cents); p.setCategoryId(category.getId());
+            p.setDescription(html); p.setDescriptionText(Jsoup.parse(html).text().toLowerCase(Locale.ROOT));
+            p.setImagesJson(paths.toString()); p.setImage(paths.isEmpty() ? "" : paths.get(0).asText());
+            return view(products.saveAndFlush(p), true);
+        });
+    }
+
+    private String productName(String name) {
+        if (name == null || name.isBlank() || name.strip().codePointCount(0, name.strip().length()) > 128)
+            throw bad("name", "商品名称必填，最多 128 个字符");
+        return name.strip();
+    }
+    private long priceCents(String price) {
+        if (price == null || !price.matches("(?:0|[1-9]\\d{0,6})(?:\\.\\d{1,2})?"))
+            throw bad("price", "价格须大于 0 且不超过 9,999,999.99 元，最多两位小数");
+        long cents = new BigDecimal(price).movePointRight(2).longValueExact();
+        if (cents < 1 || cents > 999999999L) throw bad("price", "价格须大于 0 且不超过 9,999,999.99 元");
+        return cents;
     }
 
     public ObjectNode edit(String session, long id, EditInput input) {

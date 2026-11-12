@@ -11,7 +11,8 @@ import java.util.*;
 public class CatalogController {
     private final CatalogService catalog;
     private final ShoppingService auth;
-    public CatalogController(CatalogService catalog, ShoppingService auth) { this.catalog=catalog; this.auth=auth; }
+    private final com.coursewise.shopping.order.OrderService orders;
+    public CatalogController(CatalogService catalog, ShoppingService auth, com.coursewise.shopping.order.OrderService orders) { this.catalog=catalog; this.auth=auth; this.orders=orders; }
 
     @GetMapping("/api/products")
     public ObjectNode products(@RequestParam(defaultValue="") String q, @RequestParam(required=false) Long categoryId,
@@ -19,6 +20,23 @@ public class CatalogController {
         return catalog.list(q, categoryId, page, size, false, null);
     }
     @GetMapping("/api/products/{id}") public ObjectNode detail(@PathVariable long id) { return catalog.detail(id,false,null); }
+    @GetMapping("/api/products/{id}/favorite-detail")
+    public ObjectNode favoriteDetail(@PathVariable long id,
+            @CookieValue(name="customer_session", required=false) String session) {
+        if (!orders.favoriteState(session, id).path("favorited").asBoolean())
+            throw new CatalogException(HttpStatus.NOT_FOUND, "product", "请从本人的收藏查看商品");
+        return catalog.favoriteDetail(id);
+    }
+    @PutMapping(value="/api/admin/products/{id}/content", consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ObjectNode editContent(@PathVariable long id,
+            @CookieValue(name="seller_session", required=false) String session,
+            @RequestParam(required=false) Long version, @RequestParam(required=false) String name,
+            @RequestParam(required=false) String price, @RequestParam(required=false) Long categoryId,
+            @RequestParam(defaultValue="") String description,
+            @RequestParam(required=false) List<String> retainedImages,
+            @RequestPart(required=false) List<MultipartFile> images) {
+        return catalog.editContent(session,id,version,name,price,categoryId,description,retainedImages,images);
+    }
     @GetMapping("/api/categories") public ArrayNode categories() { return catalog.categoryTree(); }
     @GetMapping("/api/admin/products")
     public ObjectNode adminProducts(@CookieValue(name="seller_session",required=false) String session,

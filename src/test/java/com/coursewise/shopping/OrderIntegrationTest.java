@@ -260,11 +260,14 @@ class OrderIntegrationTest {
                 .content("{\"cartItemIds\":[" + item + "]}")).andReturn());
         long orderId = order.path("id").asLong();
 
-        ProductEntity entity = products.findById(product).orElseThrow();
-        entity.setPriceCents(12000);
-        products.saveAndFlush(entity);
+        var current = read(mvc.perform(get("/api/admin/products/" + product).cookie(seller)).andReturn());
+        mvc.perform(multipart(org.springframework.http.HttpMethod.PUT,"/api/admin/products/" + product + "/content")
+                .cookie(seller).param("version",current.path("version").asText()).param("name","新钢笔")
+                .param("price","120.00").param("categoryId",Long.toString(leaf)))
+                .andExpect(status().isOk());
 
         mvc.perform(get("/api/orders/" + orderId).cookie(alice))
+                .andExpect(jsonPath("$.items[0].productName").value("钢笔"))
                 .andExpect(jsonPath("$.items[0].unitPriceCents").value(1000))
                 .andExpect(jsonPath("$.totalCents").value(2000));
     }

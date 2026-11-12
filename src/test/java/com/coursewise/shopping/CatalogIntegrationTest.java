@@ -99,7 +99,7 @@ class CatalogIntegrationTest {
         var p=publish();long id=p.path("id").asLong();
         var entity=products.findById(id).orElseThrow();entity.setStatus(ProductStatus.frozen);products.saveAndFlush(entity);
         mvc.perform(get("/api/products")).andExpect(jsonPath("$.total").value(0));
-        mvc.perform(get("/api/products/"+id)).andExpect(status().isOk()).andExpect(jsonPath("$.readOnly").value(true));
+        mvc.perform(get("/api/products/"+id)).andExpect(status().isNotFound());
         for(var state:List.of(ProductStatus.sold,ProductStatus.depleted,ProductStatus.withdrawn)) {
             entity=products.findById(id).orElseThrow();entity.setStatus(state);products.saveAndFlush(entity);
             mvc.perform(get("/api/products/"+id)).andExpect(status().isNotFound());
@@ -199,5 +199,44 @@ class CatalogIntegrationTest {
         mvc.perform(patch("/api/admin/products/"+id).cookie(cookie).contentType("application/json").content(editBody(current,0,leaf)))
                 .andExpect(status().isConflict());
         assertEquals(3,products.findById(id).orElseThrow().getStock());
+    }
+
+    org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder contentRequest(JsonNode p) {
+        var request = multipart(org.springframework.http.HttpMethod.PUT,"/api/admin/products/"+p.path("id").asLong()+"/content");
+        request
+                .cookie(cookie).param("version",p.path("version").asText()).param("name","新版手工杯")
+                .param("price","29.80").param("categoryId",Long.toString(otherLeaf))
+                .param("description","<p>新版<strong>描述</strong></p><script>alert(1)</script>");
+        return request;
+    }
+    @Test void contentEditPersistsAllFieldsWithoutChangingStockOrStatus() throws Exception {
+        var p=publish("旧杯","旧描述",List.of(image("a.png","image/png","png")));
+        var updated=read(mvc.perform(contentRequest(p).file(image("b.jpg","image/jpeg","jpg")).param("retainedImages",p.path("images").get(0).asText())).andExpect(status().isOk()).andReturn());
+        assertEquals("新版手工杯",updated.path("name").asText());assertEquals(2980,updated.path("priceCents").asInt());
+        assertEquals(3,updated.path("stock").asInt());assertEquals("active",updated.path("status").asText());
+        assertEquals(2,updated.path("images").size());assertFalse(updated.path("description").asText().contains("script"));
+        mvc.perform(get("/api/products").param("q","新版")).andExpect(jsonPath("$.total").value(1));
+        mvc.perform(contentRequest(p)).andExpect(status().isConflict());
+        var cleared=read(mvc.perform(contentRequest(updated)).andExpect(status().isOk()).andReturn());
+        assertEquals(0,cleared.path("images").size());assertEquals("/placeholder.svg",cleared.path("image").asText());
+    }
+    @Test void contentEditRejectsUnavailableProductsAndUnownedImages() throws Exception {
+        var p=publish();
+        mvc.perform(contentRequest(p).param("retainedImages","/uploads/other.png")).andExpect(status().isBadRequest());
+        mvc.perform(contentRequest(p).param("retainedImages","/uploads/other.png","/uploads/other.png")).andExpect(status().isBadRequest());
+        for(var state:List.of(ProductStatus.frozen,ProductStatus.depleted,ProductStatus.withdrawn,ProductStatus.sold)) {
+            var entity=products.findById(p.path("id").asLong()).orElseThrow();entity.setStatus(state);products.saveAndFlush(entity);
+            mvc.perform(contentRequest(p)).andExpect(status().isConflict());
+        }
+    }
+    @Test void contentEditValidatesPriceImageLimitsAndAuthentication() throws Exception {
+        var p=publish();
+        mvc.perform(contentRequest(p).param("price","0")).andExpect(status().isBadRequest());
+        var request=contentRequest(p);for(int i=0;i<10;i++)request.file(image("p.png","image/png","png"));
+        mvc.perform(request).andExpect(status().isBadRequest());
+        mvc.perform(contentRequest(p).file(image("fake.png","image/png","gif"))).andExpect(status().isBadRequest());
+        mvc.perform(multipart(org.springframework.http.HttpMethod.PUT,"/api/admin/products/"+p.path("id").asLong()+"/content"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/products/"+p.path("id").asLong()+"/favorite-detail")).andExpect(status().isUnauthorized());
     }
 }

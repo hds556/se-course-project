@@ -1,0 +1,7 @@
+{
+  "fixture": "隔离数据库将商品设为 frozen，模拟旧冻结残留状态",
+  "unownedFavorite": 404,
+  "ownedFavorite": 200,
+  "cartDisabled": true,
+  "offlineEditDisabled": true
+}

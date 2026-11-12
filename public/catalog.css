@@ -111,3 +111,5 @@ header nav{display:flex;align-items:center;gap:22px;flex-wrap:wrap;font-size:14p
   .seller-summary .order-ops{justify-content:flex-start}
 }
 
+
+#edit-dialog{width:min(860px,94vw);max-height:92vh;overflow:auto}#edit-fields{border:0;padding:0;margin:0;min-width:0}#edit-editor{min-height:130px;border:1px solid #d8cfc3;border-radius:8px;padding:14px;background:#fffefa}#edit-editor img{max-width:240px}#edit-fields:disabled{opacity:.75}#retained-images input{width:auto}

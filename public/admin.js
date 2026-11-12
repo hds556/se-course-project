@@ -18,9 +18,56 @@ $('#category-form').onsubmit=async event=>{event.preventDefault();const button=e
 $('#category-tree').onclick=async event=>{const rename=event.target.closest('[data-rename]'),remove=event.target.closest('[data-delete]');if(rename){const id=Number(rename.dataset.rename),category=tree.flatMap(c=>[c,...c.children]).find(c=>c.id===id);$('#rename-form').elements.id.value=id;$('#rename-form').elements.name.value=category.name;$('#rename-error').textContent='';$('#category-dialog').showModal();}if(remove){const id=Number(remove.dataset.delete);if(!confirm('确认删除这个类别？挂有商品或子类别时会拒绝删除。'))return;try{await api(`/api/admin/categories/${id}`,{method:'DELETE'});await loadCategories();notice('类别已删除');}catch(e){notice(e.message,true);}}};
 $('#rename-form').onsubmit=async event=>{event.preventDefault();const form=event.target;try{await api(`/api/admin/categories/${form.elements.id.value}`,json('PATCH',{name:form.elements.name.value}));$('#category-dialog').close();await loadCategories();await loadInventory();notice('类别名称已更新');}catch(e){$('#rename-error').textContent=e.message;}};
 $('#close-category').onclick=()=>$('#category-dialog').close();
-$('#inventory-body').onclick=async event=>{const button=event.target.closest('[data-edit]');if(!button)return;try{const p=await api(`/api/admin/products/${button.dataset.edit}`);const form=$('#edit-form');form.elements.id.value=p.id;form.elements.version.value=p.version;form.elements.stock.value=p.stock;form.elements.categoryId.value=p.category.id;$('#edit-name').textContent=p.name;$('#edit-error').textContent='';$('#edit-dialog').showModal();}catch(e){notice(e.message,true);}};
+let editPreviewUrls=[];
+$('#inventory-body').onclick=async event=>{
+ const button=event.target.closest('[data-edit]');if(!button)return;
+ try{const p=await api(`/api/admin/products/${button.dataset.edit}`),form=$('#edit-form');
+ form.reset();form.elements.id.value=p.id;form.elements.version.value=p.version;
+ form.elements.name.value=p.name;form.elements.price.value=(p.priceCents/100).toFixed(2);form.elements.categoryId.value=p.category.id;
+ $('#edit-editor').innerHTML=p.description;$('#edit-name').textContent=`${states[p.status]} · 库存 ${p.stock} 件（由库存模块维护）`;
+ const readOnly=!['active','resumed'].includes(p.status)||p.stock<=0;
+ $('#edit-fields').disabled=readOnly;$('#edit-editor').contentEditable=String(!readOnly);
+ $('#edit-error').textContent=readOnly?'已下架商品只读，不能保存修改。':'';
+ $('#retained-images').innerHTML=p.images.map((src,i)=>`<label><img src="${esc(src)}" alt="商品图 ${i+1}"><input type="checkbox" name="retainedImages" value="${esc(src)}" checked>保留第 ${i+1} 张</label>`).join('');
+ $('#edit-preview').replaceChildren();editPreviewUrls.forEach(URL.revokeObjectURL);editPreviewUrls=[];
+ $('#edit-dialog').showModal();
+ }catch(e){notice(e.message,true);}
+};
 $('#close-edit').onclick=()=>$('#edit-dialog').close();
-$('#edit-form').onsubmit=async event=>{event.preventDefault();const form=event.target;event.submitter.disabled=true;try{await api(`/api/admin/products/${form.elements.id.value}`,json('PATCH',{stock:Number(form.elements.stock.value),categoryId:Number(form.elements.categoryId.value),version:Number(form.elements.version.value)}));$('#edit-dialog').close();await loadInventory();notice('库存与类别已保存');}catch(e){$('#edit-error').textContent=e.message;}finally{event.submitter.disabled=false;}};
+$('#edit-images').onchange=()=>{
+ editPreviewUrls.forEach(URL.revokeObjectURL);editPreviewUrls=[];
+ const files=Array.from($('#edit-images').files),error=imageError(files);
+ $('#edit-error').textContent=error;
+ $('#edit-preview').innerHTML=error?'':files.map(f=>{const url=URL.createObjectURL(f);editPreviewUrls.push(url);return `<img src="${url}" alt="新增商品图">`;}).join('');
+};
+$('#edit-form').onsubmit=async event=>{
+ event.preventDefault();const form=event.target,button=$('#save-content');
+ const files=Array.from($('#edit-images').files),kept=form.querySelectorAll('[name="retainedImages"]:checked').length;
+ const error=imageError(files)||(kept+files.length>9?'商品图片最多 9 张':'');
+ if(error){$('#edit-error').textContent=error;return;}
+ const data=new FormData(form);data.delete('id');data.set('description',$('#edit-editor').innerHTML);if(!files.length)data.delete('images');
+ button.disabled=true;
+ try{await api(`/api/admin/products/${form.elements.id.value}/content`,{method:'PUT',body:data});$('#edit-dialog').close();await loadInventory();notice('商品信息已保存，已有订单保留原始快照');}
+ catch(e){$('#edit-error').textContent=e.message;}
+ finally{button.disabled=false;}
+};
+document.querySelectorAll('[data-edit-format]').forEach(button=>button.onmousedown=event=>{
+ event.preventDefault();const selection=getSelection();if(!selection.rangeCount||$('#edit-fields').disabled)return;
+ const range=selection.getRangeAt(0);if(!$('#edit-editor').contains(range.commonAncestorContainer))return;
+ const node=document.createElement(button.dataset.editFormat);node.appendChild(range.extractContents());range.insertNode(node);
+});
+$('#edit-editor').addEventListener('paste',event=>{
+ event.preventDefault();const selection=getSelection();if(!selection.rangeCount)return;
+ const range=selection.getRangeAt(0);if(!$('#edit-editor').contains(range.commonAncestorContainer))return;
+ range.deleteContents();range.insertNode(document.createTextNode(event.clipboardData.getData('text/plain')));
+});
+$('#edit-inline-image').onchange=async event=>{
+ const file=event.target.files[0];if(!file)return;const error=imageError([file]);
+ if(error){$('#edit-error').textContent=error;return;}
+ const data=new FormData();data.append('image',file);
+ try{const result=await api('/api/admin/description-images',{method:'POST',body:data});const img=document.createElement('img');img.src=result.url;img.alt='商品描述插图';$('#edit-editor').appendChild(img);}
+ catch(e){$('#edit-error').textContent=e.message;}finally{event.target.value='';}
+};
 function imageError(files){if(files.length>9)return '商品图片最多 9 张';for(const f of files){if(!['image/jpeg','image/png'].includes(f.type)||!(/\.(jpe?g|png)$/i.test(f.name)))return '仅支持 JPG/PNG 图片';if(f.size>5*1024*1024)return '单张图片不得超过 5MB';}return '';}
 $('#images').onchange=()=>{previewUrls.forEach(URL.revokeObjectURL);previewUrls=[];const files=Array.from($('#images').files),error=imageError(files);$('[data-error="images"]').textContent=error;$('#image-preview').innerHTML=error?'':files.map((f,i)=>{const url=URL.createObjectURL(f);previewUrls.push(url);return `<figure><img src="${url}" alt="${esc(f.name)}"><figcaption>${i===0?'主图':'商品图 '+(i+1)}</figcaption></figure>`;}).join('');};
 document.querySelectorAll('[data-format]').forEach(button=>button.onmousedown=event=>{event.preventDefault();const selection=getSelection();if(!selection.rangeCount)return;const range=selection.getRangeAt(0);if(!$('#editor').contains(range.commonAncestorContainer))return;const node=document.createElement(button.dataset.format);node.appendChild(range.extractContents());if(!node.textContent)node.textContent='请输入文字';range.insertNode(node);selection.removeAllRanges();const next=document.createRange();next.selectNodeContents(node);selection.addRange(next);});

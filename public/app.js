@@ -13,7 +13,7 @@ async function render() {
   try {
     if (params.has('product')) {
       $('#detail').innerHTML = '<p class="muted">正在加载商品详情…</p>';
-      const product = await api(`/api/products/${encodeURIComponent(params.get('product'))}`);
+      const product = await api(`/api/products/${encodeURIComponent(params.get('product'))}${params.get("from")==="favorite"?"/favorite-detail":""}`);
       if (sequence !== requestId) return;
       const images = product.images.length ? product.images : ['/placeholder.svg'];
       const sellable = product.status === 'active' || product.status === 'resumed';

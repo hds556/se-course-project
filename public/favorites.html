@@ -42,16 +42,16 @@
 function card(item) {
   const offline = !item.available;
   return `<article class="favorite-card ${offline ? 'offline' : ''}" data-product="${item.productId}">
-    <a class="favorite-link" href="/?product=${item.productId}">
+    <a class="favorite-link" href="/?product=${item.productId}&from=favorite">
       <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
       <span class="badge ${offline ? 'badge-offline' : 'badge-active'}">${esc(item.statusLabel)}</span>
     </a>
     <div class="favorite-body">
-      <a class="favorite-name" href="/?product=${item.productId}">${esc(item.name)}</a>
+      <a class="favorite-name" href="/?product=${item.productId}&from=favorite">${esc(item.name)}</a>
       <span class="money">${money(item.priceCents)}</span>
       <span class="muted">收藏于 ${fmtTime(item.favoritedAt)}</span>
       <div class="actions">
-        <a class="button-link" href="/?product=${item.productId}">查看详情</a>
+        <a class="button-link" href="/?product=${item.productId}&from=favorite">查看详情</a>
         <button type="button" class="secondary" data-unfavorite="${item.productId}">取消收藏</button>
       </div>
     </div>
