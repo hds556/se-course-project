@@ -90,3 +90,24 @@ header nav{display:flex;align-items:center;gap:22px;flex-wrap:wrap;font-size:14p
   .favorite-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .order-card>summary{grid-template-columns:1fr 1fr;row-gap:8px}
 }
+
+/* ===== 挑战需求B · 开发B：卖家订单处理（14207 / 14208 / 14209 / 14214） ===== */
+.page-tabs{margin:0 0 18px}
+.seller-filter{display:flex;gap:14px;align-items:end;flex-wrap:wrap;background:#f1eae1;border-radius:13px;padding:18px 20px;margin-bottom:20px}
+.seller-filter label{flex:1 1 280px}
+.seller-filter>p{margin:0;flex:1 1 100%}
+.seller-meta{display:flex;gap:10px 24px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:0 0 18px}
+.seller-meta strong{font-weight:650;color:var(--ink)}
+/* 卖家行比买家多一列信息（客户）、操作区放两个按钮，单独覆盖栅格 */
+.order-card>summary.seller-summary{grid-template-columns:minmax(0,1.05fr) minmax(0,1.15fr) 168px 96px 88px minmax(0,240px)}
+.seller-summary .order-ops{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.seller-summary .order-ops button{font-size:12px;padding:7px 12px}
+.seller-summary .order-ops .muted{font-size:12px;align-self:center}
+/* 按商品维度查看时，高亮本单里属于该商品的明细行 */
+.orders-table tr.hit td{background:#fdf6e6}
+.orders-table tr.hit td:first-child{font-weight:650}
+@media(max-width:800px){
+  .order-card>summary.seller-summary{grid-template-columns:1fr 1fr;row-gap:8px}
+  .seller-summary .order-ops{justify-content:flex-start}
+}
+

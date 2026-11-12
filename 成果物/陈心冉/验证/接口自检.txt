@@ -1,0 +1,387 @@
+# 接口自检记录（挑战需求B · 开发B）
+
+- 被测版本：projectB 分支，本次新增 seller 模块后的本地构建
+- 运行方式：java -jar target/shopping-system-1.0.0.jar，独立 SQLite 库与独立上传目录（不污染仓库内 data/shop.db）
+- 调用方式：脚本直连真实服务，无 mock；下表即服务端原始响应
+- 覆盖需求：14207 推进订单状态 / 14208 卖家取消订单 / 14209 查看商品订单记录 / 14214 查看客户购买历史
+- 与自动化测试的关系：本文档是"对着运行中的服务打接口"的实测记录，自动化用例见 src/test/java/com/coursewise/shopping/SellerOrderIntegrationTest.java
+- 演示数据：4 件商品（#1 钢笔 · 晨光 M1 / #2 手账本 · 方格 / #3 墨水 · 兰黑 / #4 蓝牙耳机）、
+  3 位客户（#1 alice / #2 bob / #3 carol）、6 笔订单（#1 ~ #6）。下文出现的 orderId / productId / customerId 即这些编号。
+
+==============================================================================
+14207 推进订单状态（FR-S-08）：五状态顺序推进，不可跳过 / 回退 / 撤销交易完成
+==============================================================================
+
+### 客户下单 → 商家确认（合法推进）
+HTTP 200
+{
+  "orderId": 1,
+  "status": "confirmed",
+  "statusLabel": "商家确认",
+  "nextStatus": "packed",
+  "nextStatusLabel": "备货完成",
+  "advanceable": true,
+  "cancellable": true,
+  "message": "订单已推进到「商家确认」"
+}
+
+### 试图跳过「备货完成」直接到「开始发货」
+HTTP 409
+{
+  "error": "订单状态只能顺序推进：当前「商家确认」的下一步只能是「备货完成」，不能跳到「开始发货」",
+  "fieldErrors": {
+    "orderId": "订单状态只能顺序推进：当前「商家确认」的下一步只能是「备货完成」，不能跳到「开始发货」"
+  },
+  "itemErrors": {}
+}
+
+### 试图回退到「客户下单」
+HTTP 409
+{
+  "error": "订单状态只能顺序推进：当前「商家确认」的下一步只能是「备货完成」，不能跳到「客户下单」",
+  "fieldErrors": {
+    "orderId": "订单状态只能顺序推进：当前「商家确认」的下一步只能是「备货完成」，不能跳到「客户下单」"
+  },
+  "itemErrors": {}
+}
+
+### 对「交易完成」的订单再推进（不可撤销）
+HTTP 409
+{
+  "error": "订单已「交易完成」，状态不可再变更；交易完成不可撤销",
+  "fieldErrors": {
+    "orderId": "订单已「交易完成」，状态不可再变更；交易完成不可撤销"
+  },
+  "itemErrors": {}
+}
+
+### 对「交易完成」的订单尝试取消
+HTTP 409
+{
+  "error": "订单已「交易完成」，交易完成后不可取消",
+  "fieldErrors": {
+    "orderId": "订单已「交易完成」，交易完成后不可取消"
+  },
+  "itemErrors": {}
+}
+
+### 未登录卖家推进订单
+HTTP 401
+{
+  "error": "未登录"
+}
+
+### 推进后的订单详情
+HTTP 200
+{
+  "id": 1,
+  "orderNo": "00000001",
+  "customerName": "alice",
+  "status": "confirmed",
+  "statusLabel": "商家确认",
+  "nextStatusLabel": "备货完成",
+  "advanceable": true,
+  "cancellable": true,
+  "totalCents": 30250,
+  "itemCount": 2,
+  "totalQuantity": 3
+}
+
+==============================================================================
+14208 卖家取消订单（FR-S-09）：交易完成前可取消（含已发货），库存按明细回补
+==============================================================================
+
+### 取消「客户下单」状态的订单（取消前库存 0）
+HTTP 200
+{
+  "orderId": 4,
+  "status": "cancelled",
+  "statusLabel": "已取消",
+  "nextStatus": null,
+  "nextStatusLabel": null,
+  "advanceable": false,
+  "cancellable": false,
+  "restored": [
+    {
+      "productId": 3,
+      "productName": "墨水 · 兰黑",
+      "quantity": 2,
+      "stock": 2,
+      "status": "active",
+      "statusLabel": "在售"
+    }
+  ],
+  "restoredQuantity": 2,
+  "message": "订单已取消，共回补 2 件商品库存"
+}
+
+取消后该商品库存：2（原 0，回补 2 件）
+
+### 对「已取消」的订单重复取消
+HTTP 409
+{
+  "error": "订单已取消，无需重复取消",
+  "fieldErrors": {
+    "orderId": "订单已取消，无需重复取消"
+  },
+  "itemErrors": {}
+}
+
+### 对「开始发货」的订单取消（卖家侧仍可取消）
+HTTP 200
+{
+  "orderId": 5,
+  "status": "cancelled",
+  "statusLabel": "已取消",
+  "cancellable": false,
+  "advanceable": false,
+  "restored": [
+    {
+      "productId": 4,
+      "productName": "蓝牙耳机",
+      "quantity": 1,
+      "stock": 8,
+      "status": "active",
+      "statusLabel": "在售"
+    }
+  ],
+  "message": "订单已取消，共回补 1 件商品库存"
+}
+
+==============================================================================
+14209 查看商品订单记录（FR-S-12）：按商品维度列出涉及该商品的全部订单
+==============================================================================
+
+### GET /api/admin/orders?productId=1
+HTTP 200
+{
+  "items": [
+    {
+      "id": 2,
+      "orderNo": "00000002",
+      "customerId": 2,
+      "customerName": "bob",
+      "customerPhone": "13800000002",
+      "totalCents": 12800,
+      "createdAt": "2026-11-12T00:20:50.060644Z",
+      "status": "placed",
+      "statusLabel": "客户下单",
+      "nextStatus": "confirmed",
+      "nextStatusLabel": "商家确认",
+      "advanceable": true,
+      "cancellable": true,
+      "items": [
+        {
+          "id": 3,
+          "productId": 1,
+          "productName": "钢笔 · 晨光 M1",
+          "unitPriceCents": 12800,
+          "quantity": 1,
+          "subtotalCents": 12800,
+          "highlight": true
+        }
+      ],
+      "itemCount": 1,
+      "totalQuantity": 1
+    },
+    {
+      "id": 1,
+      "orderNo": "00000001",
+      "customerId": 1,
+      "customerName": "alice",
+      "customerPhone": "13800000001",
+      "totalCents": 30250,
+      "createdAt": "2026-11-12T00:20:50.029215800Z",
+      "status": "confirmed",
+      "statusLabel": "商家确认",
+      "nextStatus": "packed",
+      "nextStatusLabel": "备货完成",
+      "advanceable": true,
+      "cancellable": true,
+      "items": [
+        {
+          "id": 1,
+          "productId": 1,
+          "productName": "钢笔 · 晨光 M1",
+          "unitPriceCents": 12800,
+          "quantity": 2,
+          "subtotalCents": 25600,
+          "highlight": true
+        },
+        {
+          "id": 2,
+          "productId": 2,
+          "productName": "手账本 · 方格",
+          "unitPriceCents": 4650,
+          "quantity": 1,
+          "subtotalCents": 4650,
+          "highlight": false
+        }
+      ],
+      "itemCount": 2,
+      "totalQuantity": 3
+    }
+  ],
+  "page": 1,
+  "size": 10,
+  "total": 2,
+  "totalPages": 1,
+  "product": {
+    "id": 1,
+    "name": "钢笔 · 晨光 M1",
+    "priceCents": 12800,
+    "stock": 9,
+    "status": "active",
+    "statusLabel": "在售",
+    "orderCount": 2,
+    "totalQuantity": 3
+  },
+  "customer": null
+}
+
+### 查询不存在的商品
+HTTP 404
+{
+  "error": "商品不存在",
+  "fieldErrors": {
+    "productId": "商品不存在"
+  },
+  "itemErrors": {}
+}
+
+### 未登录卖家查询商品订单记录
+HTTP 401
+{
+  "error": "未登录"
+}
+
+==============================================================================
+14214 查看客户购买历史（FR-S-11）：按客户维度查询其全部订单，可推进或取消
+==============================================================================
+
+### GET /api/admin/orders?customerId=1
+HTTP 200
+{
+  "items": [
+    {
+      "id": 4,
+      "orderNo": "00000004",
+      "customerId": 1,
+      "customerName": "alice",
+      "customerPhone": "13800000001",
+      "totalCents": 6400,
+      "createdAt": "2026-11-12T00:20:50.141210500Z",
+      "status": "cancelled",
+      "statusLabel": "已取消",
+      "nextStatus": null,
+      "nextStatusLabel": null,
+      "advanceable": false,
+      "cancellable": false,
+      "items": [
+        {
+          "id": 5,
+          "productId": 3,
+          "productName": "墨水 · 兰黑",
+          "unitPriceCents": 3200,
+          "quantity": 2,
+          "subtotalCents": 6400,
+          "highlight": false
+        }
+      ],
+      "itemCount": 1,
+      "totalQuantity": 2
+    },
+    {
+      "id": 1,
+      "orderNo": "00000001",
+      "customerId": 1,
+      "customerName": "alice",
+      "customerPhone": "13800000001",
+      "totalCents": 30250,
+      "createdAt": "2026-11-12T00:20:50.029215800Z",
+      "status": "confirmed",
+      "statusLabel": "商家确认",
+      "nextStatus": "packed",
+      "nextStatusLabel": "备货完成",
+      "advanceable": true,
+      "cancellable": true,
+      "items": [
+        {
+          "id": 1,
+          "productId": 1,
+          "productName": "钢笔 · 晨光 M1",
+          "unitPriceCents": 12800,
+          "quantity": 2,
+          "subtotalCents": 25600,
+          "highlight": false
+        },
+        {
+          "id": 2,
+          "productId": 2,
+          "productName": "手账本 · 方格",
+          "unitPriceCents": 4650,
+          "quantity": 1,
+          "subtotalCents": 4650,
+          "highlight": false
+        }
+      ],
+      "itemCount": 2,
+      "totalQuantity": 3
+    }
+  ],
+  "page": 1,
+  "size": 10,
+  "total": 2,
+  "totalPages": 1,
+  "customer": {
+    "id": 1,
+    "username": "alice",
+    "phone": "13800000001",
+    "defaultPlace": "未设置",
+    "registeredAt": "2026-11-12T00:20:48.702013800Z"
+  },
+  "product": null
+}
+
+### 在客户维度下（bob 的订单）直接推进
+HTTP 200
+{
+  "orderId": 2,
+  "status": "confirmed",
+  "statusLabel": "商家确认",
+  "nextStatusLabel": "备货完成"
+}
+
+### 在客户维度下（carol 的订单）直接取消
+HTTP 200
+{
+  "orderId": 6,
+  "status": "cancelled",
+  "statusLabel": "已取消",
+  "restoredQuantity": 1,
+  "message": "订单已取消，共回补 1 件商品库存"
+}
+
+### 查询不存在的客户
+HTTP 404
+{
+  "error": "客户不存在",
+  "fieldErrors": {
+    "customerId": "客户不存在"
+  },
+  "itemErrors": {}
+}
+
+### 同时指定商品与客户（两个入口互斥）
+HTTP 400
+{
+  "error": "按商品与按客户是两个独立的查询入口，请只指定其中一个",
+  "fieldErrors": {
+    "productId": "按商品与按客户是两个独立的查询入口，请只指定其中一个"
+  },
+  "itemErrors": {}
+}
+
+==============================================================================
+全部调用完成
+==============================================================================

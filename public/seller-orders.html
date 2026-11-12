@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>订单处理 · 卖家工作台</title>
+  <link rel="stylesheet" href="/catalog.css">
+  <script src="/seller-orders.js" defer></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/admin.html">拾物小店 <small>SELLER ORDERS</small></a>
+  <nav>
+    <a href="/admin.html">← 返回卖家工作台</a>
+    <a href="/">查看小店 ↗</a>
+    <button id="logout" type="button" class="secondary">退出登录</button>
+  </nav>
+</header>
+
+<main>
+  <section class="intro compact">
+    <p class="eyebrow">订单处理</p>
+    <h1>推进与取消订单</h1>
+    <p>订单状态按「客户下单 → 商家确认 → 备货完成 → 开始发货 → 交易完成」顺序推进，一次进一格，不能跳过、不能回退；交易完成不可撤销。</p>
+    <p>交易完成之前（含「开始发货」）卖家都可以取消，取消后按明细数量回补库存，售罄下架的商品随库存恢复在售。</p>
+  </section>
+
+  <nav class="tabs page-tabs" aria-label="查询维度">
+    <button type="button" data-dim="product">按商品查看订单记录</button>
+    <button type="button" data-dim="customer" class="secondary">按客户查看购买历史</button>
+    <button type="button" data-dim="all" class="secondary">全部订单</button>
+  </nav>
+
+  <section class="panel">
+    <div id="picker" class="seller-filter"></div>
+    <div id="dim-head"></div>
+    <p id="notice" role="status" aria-live="polite" hidden></p>
+    <div id="content"><p class="muted">正在加载…</p></div>
+    <nav id="pagination" class="pagination" aria-label="订单分页"></nav>
+  </section>
+</main>
+
+<footer>拾物小店 · 卖家工作台 · 订单处理</footer>
+</body>
+</html>
