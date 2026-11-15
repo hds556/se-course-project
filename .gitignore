@@ -9,3 +9,6 @@ uploads/
 **/__pycache__/
 *.py[cod]
 ~$*
+
+# 本地测试运行产物
+.testrun/
