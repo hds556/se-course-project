@@ -70,14 +70,18 @@
 
   async function loadProducts() {
     if (cache.products) return cache.products;
-    const items = [];
-    for (let page = 1; page <= 10; page++) {
-      const data = await api(`/api/admin/products?page=${page}&size=60`);
-      items.push(...data.items);
-      if (page >= data.totalPages || !data.items.length) break;
-    }
-    cache.products = items;
-    return items;
+    const loadOnSale = async () => {
+      const items = [];
+      for (let page = 1; ; page++) {
+        const data = await api(`/api/admin/products?page=${page}&size=60`);
+        items.push(...data.items);
+        if (page >= data.totalPages || !data.items.length) return items;
+      }
+    };
+    const [onSale, offline] = await Promise.all([loadOnSale(), api('/api/admin/products/offline')]);
+    // 下架不影响已有订单：两类商品均保留按商品查询入口。
+    cache.products = [...new Map([...onSale, ...offline].map(product => [product.id, product])).values()];
+    return cache.products;
   }
 
   async function loadCustomers() {
@@ -102,10 +106,10 @@
           state.productId = null;
           return;
         }
-        if (state.productId == null) state.productId = products[0].id;
+        if (!products.some(product => product.id === state.productId)) state.productId = products[0].id;
         box.innerHTML = `<label>选择商品<select id="pick-product">${products.map(p =>
           `<option value="${p.id}" ${p.id === state.productId ? 'selected' : ''}>`
-          + `#${p.id} ${esc(p.name)}（库存 ${p.stock} · ${esc(statusLabel(p.status))}）</option>`).join('')}`
+          + `#${p.id} ${esc(p.name)}（库存 ${esc(p.stock ?? '—')} · ${esc(statusLabel(p.status))}）</option>`).join('')}`
           + '</select></label><p class="muted">按商品维度只统计订单明细里出现过该商品的订单，不限订单状态。</p>';
         $('#pick-product').onchange = event => {
           state.productId = Number(event.target.value);
@@ -138,8 +142,7 @@
   }
 
   const PRODUCT_STATES = {
-    active: '在售', resumed: '在售', frozen: '已冻结',
-    sold: '已售（终态）', depleted: '售罄下架', withdrawn: '手动下架',
+    active: '在售', depleted: '售罄下架', withdrawn: '手动下架',
   };
   const statusLabel = code => PRODUCT_STATES[code] || code || '未知';
 

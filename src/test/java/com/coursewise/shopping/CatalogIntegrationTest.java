@@ -95,13 +95,11 @@ class CatalogIntegrationTest {
         mvc.perform(get("/api/products").param("categoryId",Long.toString(parent))).andExpect(status().isBadRequest());
         mvc.perform(get("/api/products").param("page","0")).andExpect(status().isBadRequest());
     }
-    @Test void frozenDirectLinkAndAllOffShelfStates() throws Exception {
+    @Test void allOffShelfStatesHideProducts() throws Exception {
         var p=publish();long id=p.path("id").asLong();
-        var entity=products.findById(id).orElseThrow();entity.setStatus(ProductStatus.frozen);products.saveAndFlush(entity);
-        mvc.perform(get("/api/products")).andExpect(jsonPath("$.total").value(0));
-        mvc.perform(get("/api/products/"+id)).andExpect(status().isNotFound());
-        for(var state:List.of(ProductStatus.sold,ProductStatus.depleted,ProductStatus.withdrawn)) {
-            entity=products.findById(id).orElseThrow();entity.setStatus(state);products.saveAndFlush(entity);
+        for(var state:List.of(ProductStatus.depleted,ProductStatus.withdrawn)) {
+            var entity=products.findById(id).orElseThrow();entity.setStatus(state);products.saveAndFlush(entity);
+            mvc.perform(get("/api/products")).andExpect(jsonPath("$.total").value(0));
             mvc.perform(get("/api/products/"+id)).andExpect(status().isNotFound());
         }
     }
@@ -114,7 +112,7 @@ class CatalogIntegrationTest {
                 .content(editBody(updated,0,otherLeaf))).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("depleted")).andReturn());
         mvc.perform(get("/api/products/"+id)).andExpect(status().isNotFound());
         mvc.perform(patch("/api/admin/products/"+id).cookie(cookie).contentType("application/json").content(editBody(zero,3,otherLeaf)))
-                .andExpect(jsonPath("$.status").value("depleted"));
+                .andExpect(jsonPath("$.status").value("active"));
     }
     @Test void immutableFieldsAndStaleUpdatesRejected() throws Exception {
         var p=publish();String url="/api/admin/products/"+p.path("id").asLong();
@@ -123,14 +121,13 @@ class CatalogIntegrationTest {
         mvc.perform(patch(url).cookie(cookie).contentType("application/json").content(editBody(p,5,leaf))).andExpect(status().isConflict());
         mvc.perform(delete(url).cookie(cookie)).andExpect(status().isMethodNotAllowed());
     }
-    @Test void soldAndWithdrawnCannotReappearByEditingStock() throws Exception {
-        for(var state:List.of(ProductStatus.sold,ProductStatus.withdrawn)){
-            var p=publish();long id=p.path("id").asLong();var entity=products.findById(id).orElseThrow();entity.setStatus(state);products.saveAndFlush(entity);
-            var current=read(mvc.perform(get("/api/admin/products/"+id).cookie(cookie)).andReturn());
-            mvc.perform(patch("/api/admin/products/"+id).cookie(cookie).contentType("application/json").content(editBody(current,10,leaf)))
-                    .andExpect(jsonPath("$.status").value(state.code()));
-            mvc.perform(get("/api/products/"+id)).andExpect(status().isNotFound());
-        }
+    @Test void manuallyWithdrawnCannotReappearByEditingStock() throws Exception {
+        var p=publish();long id=p.path("id").asLong();
+        var current=read(mvc.perform(post("/api/admin/products/"+id+"/withdraw").cookie(cookie))
+                .andExpect(status().isOk()).andReturn());
+        mvc.perform(patch("/api/admin/products/"+id).cookie(cookie).contentType("application/json").content(editBody(current,10,leaf)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("withdrawn"));
+        mvc.perform(get("/api/products/"+id)).andExpect(status().isNotFound());
     }
     @ParameterizedTest @ValueSource(strings={"0","-1","10000000","0.001","1e2","NaN","","9,999.99"})
     void invalidPricesRejected(String price) throws Exception {
@@ -192,13 +189,13 @@ class CatalogIntegrationTest {
         mvc.perform(get("/api/products/"+p.path("id").asLong())).andExpect(status().isOk())
                 .andExpect(jsonPath("$.category.id").value(otherLeaf));
     }
-    @Test void editedFrozenStockCannotCorruptBoundTrade() throws Exception {
+    @Test void retiredIntentBindingDoesNotBlockStockAdjustment() throws Exception {
         var p=publish();long id=p.path("id").asLong();var entity=products.findById(id).orElseThrow();
-        entity.setStatus(ProductStatus.frozen);entity.setTradingIntentId(999L);products.saveAndFlush(entity);
+        entity.setTradingIntentId(999L);products.saveAndFlush(entity);
         var current=read(mvc.perform(get("/api/admin/products/"+id).cookie(cookie)).andReturn());
         mvc.perform(patch("/api/admin/products/"+id).cookie(cookie).contentType("application/json").content(editBody(current,0,leaf)))
-                .andExpect(status().isConflict());
-        assertEquals(3,products.findById(id).orElseThrow().getStock());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("depleted"));
+        assertEquals(0,products.findById(id).orElseThrow().getStock());
     }
 
     org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder contentRequest(JsonNode p) {
@@ -224,7 +221,7 @@ class CatalogIntegrationTest {
         var p=publish();
         mvc.perform(contentRequest(p).param("retainedImages","/uploads/other.png")).andExpect(status().isBadRequest());
         mvc.perform(contentRequest(p).param("retainedImages","/uploads/other.png","/uploads/other.png")).andExpect(status().isBadRequest());
-        for(var state:List.of(ProductStatus.frozen,ProductStatus.depleted,ProductStatus.withdrawn,ProductStatus.sold)) {
+        for(var state:List.of(ProductStatus.depleted,ProductStatus.withdrawn)) {
             var entity=products.findById(p.path("id").asLong()).orElseThrow();entity.setStatus(state);products.saveAndFlush(entity);
             mvc.perform(contentRequest(p)).andExpect(status().isConflict());
         }

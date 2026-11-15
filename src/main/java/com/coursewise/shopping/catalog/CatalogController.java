@@ -1,6 +1,7 @@
 package com.coursewise.shopping.catalog;
 
 import com.coursewise.shopping.ShoppingService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.*;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -9,6 +10,7 @@ import java.util.*;
 
 @RestController
 public class CatalogController {
+    private static final long MAX_EXACT_BROWSER_STOCK = 9_007_199_254_740_991L;
     private final CatalogService catalog;
     private final ShoppingService auth;
     private final com.coursewise.shopping.order.OrderService orders;
@@ -46,6 +48,33 @@ public class CatalogController {
     @GetMapping("/api/admin/products/{id}")
     public ObjectNode adminDetail(@CookieValue(name="seller_session",required=false) String session, @PathVariable long id) {
         return catalog.detail(id,true,session);
+    }
+    @GetMapping("/api/admin/products/offline")
+    public ArrayNode offlineProducts(@CookieValue(name="seller_session", required=false) String session) {
+        return catalog.offlineProducts(session);
+    }
+    @PatchMapping("/api/admin/products/{id}/stock")
+    public ObjectNode adjustStock(@PathVariable long id,
+            @CookieValue(name="seller_session", required=false) String session,
+            @RequestBody(required=false) JsonNode body) {
+        auth.requireSession(session);
+        if (body == null || !body.isObject() || !body.has("stock")
+                || body.size() != (body.has("version") ? 2 : 1))
+            throw new CatalogException(HttpStatus.BAD_REQUEST, "stock", "只接受库存与可选的商品版本");
+        JsonNode stock = body.get("stock");
+        if (!stock.isIntegralNumber() || !stock.canConvertToLong()
+                || stock.longValue() < 0 || stock.longValue() > MAX_EXACT_BROWSER_STOCK)
+            throw new CatalogException(HttpStatus.BAD_REQUEST, "stock", "库存须为浏览器可精确表示的非负整数");
+        return catalog.adjustStock(session, id, stock.longValue(), optionalVersion(body));
+    }
+    @PostMapping("/api/admin/products/{id}/withdraw")
+    public ObjectNode withdraw(@PathVariable long id,
+            @CookieValue(name="seller_session", required=false) String session,
+            @RequestBody(required=false) JsonNode body) {
+        auth.requireSession(session);
+        if (body != null && (!body.isObject() || body.size() != (body.has("version") ? 1 : 0)))
+            throw new CatalogException(HttpStatus.BAD_REQUEST, "version", "下架请求只接受可选的商品版本");
+        return catalog.withdraw(session, id, optionalVersion(body));
     }
     @PostMapping(value="/api/products", consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
@@ -93,4 +122,12 @@ public class CatalogController {
         return new java.math.BigDecimal(value.toString()).longValueExact();
     }
     private Integer integer(Object value) { return Math.toIntExact(whole(value)); }
+
+    private Long optionalVersion(JsonNode body) {
+        if (body == null || !body.has("version")) return null;
+        JsonNode version = body.get("version");
+        if (!version.isIntegralNumber() || !version.canConvertToLong() || version.longValue() < 0)
+            throw new CatalogException(HttpStatus.BAD_REQUEST, "version", "商品版本必须是非负整数");
+        return version.longValue();
+    }
 }

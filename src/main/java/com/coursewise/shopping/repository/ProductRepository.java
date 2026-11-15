@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-import java.util.Optional;
 
 /** 商品仓储。 */
 public interface ProductRepository extends JpaRepository<ProductEntity, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<ProductEntity> {
@@ -23,9 +22,14 @@ public interface ProductRepository extends JpaRepository<ProductEntity, Long>, o
      * @return 受影响行数，1 = 扣减成功，0 = 库存不足或商品不可售
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update ProductEntity p set p.stock = p.stock - :qty, p.version = p.version + 1 "
-            + "where p.id = :id and p.stock >= :qty and p.status in ('active', 'resumed')")
-    int deductStock(@Param("id") Long id, @Param("qty") int qty);
+    @Query(value = """
+            UPDATE product SET stock = stock - :qty,
+                status = CASE WHEN stock = :qty THEN 'depleted' ELSE 'active' END,
+                offline_at = CASE WHEN stock = :qty THEN :now ELSE NULL END,
+                version = version + 1
+            WHERE id = :id AND stock >= :qty AND status = 'active'
+            """, nativeQuery = true)
+    int deductStock(@Param("id") Long id, @Param("qty") int qty, @Param("now") String now);
 
     /**
      * 取消订单回补库存（BR-04）：按数量加回，并顺带把因售罄下架（depleted）的商品
@@ -36,33 +40,15 @@ public interface ProductRepository extends JpaRepository<ProductEntity, Long>, o
      * @return 受影响行数
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update ProductEntity p set p.stock = p.stock + :qty, p.version = p.version + 1, "
-            + "p.status = case when p.status = 'depleted' then 'active' else p.status end "
-            + "where p.id = :id")
+    @Query(value = """
+            UPDATE product SET stock = stock + :qty, version = version + 1,
+                status = CASE WHEN status = 'depleted' THEN 'active' ELSE status END,
+                offline_at = CASE WHEN status = 'depleted' THEN NULL ELSE offline_at END
+            WHERE id = :id
+            """, nativeQuery = true)
     int restoreStock(@Param("id") Long id, @Param("qty") int qty);
 
     boolean existsByCategoryId(Long categoryId);
 
-    /**
-     * 当前未售出的商品（系统中至多一件）。
-     * status != sold 即未售出；取 id 最大者以防历史数据异常时仍能稳定取值。
-     */
-    Optional<ProductEntity> findFirstByStatusNotOrderByIdDesc(ProductStatus status);
-
-    /** 是否已存在未售出商品（发布商品的前置校验）。 */
-    boolean existsByStatusNot(ProductStatus status);
-
-    /** 历史商品：全部已下架商品，按发布时间倒序（FR-S-08）。 */
-    List<ProductEntity> findByStatusOrderByIdDesc(ProductStatus status);
-
-    /** 交易工作台：在售 / 冻结 / 售罄等需要处理的商品。 */
-    List<ProductEntity> findByStatusInOrderByIdDesc(java.util.Collection<ProductStatus> statuses);
-
-    /**
-     * 历史商品：发生过交易结果（成功或失败）的商品，按结果时间倒序。
-     *
-     * <p>口径与"已下架"不同：交易失败的商品仍回到在售，但按需求要出现在历史商品列表；
-     * 手动下架与售罄的商品 result 为空，天然不进列表。
-     */
-    List<ProductEntity> findByResultIsNotNullOrderByResultAtDescIdDesc();
+    List<ProductEntity> findByStatusIn(java.util.Collection<ProductStatus> statuses);
 }

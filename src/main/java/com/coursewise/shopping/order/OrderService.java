@@ -1,5 +1,7 @@
 package com.coursewise.shopping.order;
 
+import com.coursewise.shopping.ShopWriteTransaction;
+
 import com.coursewise.shopping.customer.CustomerService;
 import com.coursewise.shopping.domain.CartItemEntity;
 import com.coursewise.shopping.domain.CustomerEntity;
@@ -8,7 +10,6 @@ import com.coursewise.shopping.domain.OrderEntity;
 import com.coursewise.shopping.domain.OrderItemEntity;
 import com.coursewise.shopping.domain.OrderStatus;
 import com.coursewise.shopping.domain.ProductEntity;
-import com.coursewise.shopping.domain.ProductStatus;
 import com.coursewise.shopping.repository.CartItemRepository;
 import com.coursewise.shopping.repository.FavoriteRepository;
 import com.coursewise.shopping.repository.OrderItemRepository;
@@ -21,9 +22,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -34,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 /**
@@ -42,7 +40,7 @@ import java.util.function.Supplier;
  *
  * <p>对应需求 14201 / 14202 / 14203 / 14204 / 14205（SRS FR-C-06 ~ FR-C-10）。
  *
- * <p><b>一致性设计</b>：SQLite 单实例部署，写操作统一走 {@link TransactionTemplate} 并在一把
+ * <p><b>一致性设计</b>：SQLite 单实例部署，写操作统一走 {@link ShopWriteTransaction} 并在一把
  * 公平可重入锁内执行，锁覆盖到事务提交，因此「校验库存 → 扣减 → 建订单 → 删购物车项」
  * 在进程内是串行的；同时在数据库层用条件更新（{@code WHERE stock >= ?}）兜底，
  * 即便绕过本锁也不会把库存扣成负数（BR-03 / BR-09 / 不超卖）。
@@ -61,13 +59,11 @@ public class OrderService {
     private final ProductRepository products;
     private final CustomerService customers;
     private final ObjectMapper mapper;
-    private final TransactionTemplate transaction;
-    /** 覆盖事务提交范围的写锁（下单扣库存、取消回补库存、购物车与收藏的写操作共用）。 */
-    private final ReentrantLock writeLock = new ReentrantLock(true);
+    private final ShopWriteTransaction writes;
 
     public OrderService(OrderRepository orders, OrderItemRepository orderItems, CartItemRepository cart,
                         FavoriteRepository favorites, ProductRepository products, CustomerService customers,
-                        ObjectMapper mapper, PlatformTransactionManager manager) {
+                        ObjectMapper mapper, ShopWriteTransaction writes) {
         this.orders = orders;
         this.orderItems = orderItems;
         this.cart = cart;
@@ -75,7 +71,7 @@ public class OrderService {
         this.products = products;
         this.customers = customers;
         this.mapper = mapper;
-        this.transaction = new TransactionTemplate(manager);
+        this.writes = writes;
     }
 
     // ==================== 14201 收藏商品（FR-C-06）====================
@@ -288,7 +284,7 @@ public class OrderService {
                     continue;
                 }
                 // 条件扣减：受影响行数 0 说明并发下库存已被抢走，同样按缺货处理
-                if (products.deductStock(product.getId(), item.getQuantity()) == 0) {
+                if (products.deductStock(product.getId(), item.getQuantity(), Instant.now().toString()) == 0) {
                     shortages.put(String.valueOf(product.getId()), "库存不足，不能下单");
                     continue;
                 }
@@ -463,9 +459,7 @@ public class OrderService {
 
     /** 商品当前是否可以被加购/下单：在售或恢复在售，且可售库存 > 0。 */
     private boolean isPurchasable(ProductEntity product) {
-        ProductStatus status = product.getStatus();
-        boolean sellable = status == ProductStatus.active || status == ProductStatus.resumed;
-        return sellable && product.getStock() != null && product.getStock() > 0;
+        return product.isBuyable() && product.getStock() != null && product.getStock() > 0;
     }
 
     private String imageOf(ProductEntity product) {
@@ -482,12 +476,7 @@ public class OrderService {
     }
 
     private <T> T write(Supplier<T> action) {
-        writeLock.lock();
-        try {
-            return transaction.execute(status -> action.get());
-        } finally {
-            writeLock.unlock();
-        }
+        return writes.execute(action);
     }
 
     /** 供测试与内部调用：某订单明细（保持与其他模块一致的访问口径）。 */

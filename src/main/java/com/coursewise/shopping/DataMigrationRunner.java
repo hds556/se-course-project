@@ -4,7 +4,6 @@ import com.coursewise.shopping.domain.IntentEntity;
 import com.coursewise.shopping.domain.IntentOutcome;
 import com.coursewise.shopping.domain.IntentStage;
 import com.coursewise.shopping.domain.ProductEntity;
-import com.coursewise.shopping.domain.ProductStatus;
 import com.coursewise.shopping.domain.SellerEntity;
 import com.coursewise.shopping.repository.IntentRepository;
 import com.coursewise.shopping.repository.ProductRepository;
@@ -68,6 +67,7 @@ public class DataMigrationRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) throws Exception {
         boolean databaseEmpty = sellers.count() == 0 && products.count() == 0 && intents.count() == 0;
         if (!databaseEmpty) {
+            normalizeProductStates();
             ensureSellerExists();
             return;
         }
@@ -105,13 +105,12 @@ public class DataMigrationRunner implements ApplicationRunner {
             product.setDescription(node.path("description").asText());
             product.setImage(node.path("image").asText());
             product.setPriceCents(node.path("priceCents").asLong());
-            product.setStatus(ProductStatus.of(node.path("status").asText()));
             product.setTradingIntentId(longOrNull(node, "tradingIntentId"));
             product.setCreatedAt(node.path("createdAt").asText(null));
             product.setFrozenAt(textOrNull(node, "frozenAt"));
             product.setResult(textOrNull(node, "result"));
             product.setResultAt(textOrNull(node, "resultAt"));
-            insertProduct(product);
+            insertProduct(product, node.path("status").asText());
             productCount++;
         }
 
@@ -120,7 +119,35 @@ public class DataMigrationRunner implements ApplicationRunner {
 
         log.info("旧数据迁移完成：{} 个商品、{} 条意向、卖家账号 1 个（来源 {}）",
                 productCount, intentCount, legacyFile);
+        normalizeProductStates();
         ensureSellerExists();
+    }
+
+    /** Adapt existing product rows to the order model without deleting their legacy records. */
+    private void normalizeProductStates() {
+        jdbc.update("""
+                UPDATE product
+                SET status = CASE
+                        WHEN status = 'withdrawn' THEN 'withdrawn'
+                        WHEN status = 'sold' OR stock <= 0 THEN 'depleted'
+                        WHEN stock > 0 THEN 'active'
+                        WHEN status = 'resumed' THEN 'active'
+                        ELSE 'depleted'
+                    END,
+                    stock = CASE WHEN status = 'sold' THEN 0 ELSE stock END,
+                    offline_at = CASE
+                        WHEN status = 'active' AND stock = 0 THEN offline_at
+                        WHEN status = 'withdrawn' OR status = 'sold' OR stock <= 0
+                            OR (status IN ('frozen', 'depleted') AND stock IS NULL)
+                        THEN COALESCE(offline_at, result_at, CASE WHEN status = 'frozen' THEN frozen_at END)
+                        ELSE NULL
+                    END,
+                    version = version + 1
+                WHERE status IN ('frozen', 'resumed', 'sold')
+                    OR (status = 'active' AND stock = 0)
+                    OR (status = 'depleted' AND stock > 0)
+                    OR (status IN ('depleted', 'withdrawn') AND offline_at IS NULL AND result_at IS NOT NULL)
+                """);
     }
 
     /** 无卖家账号时补一个默认账号（初始密码可由环境变量覆盖，BR-18 只存哈希）。 */
@@ -146,14 +173,14 @@ public class DataMigrationRunner implements ApplicationRunner {
     }
 
     /** Insert legacy IDs explicitly; JpaRepository.save treats assigned IDs as existing rows. */
-    private void insertProduct(ProductEntity product) {
+    private void insertProduct(ProductEntity product, String status) {
         if (product.getId() == null) {
             jdbc.update("""
                     INSERT INTO product (name, description, image, price_cents, status,
                         trading_intent_id, created_at, frozen_at, result, result_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, product.getName(), product.getDescription(), product.getImage(),
-                    product.getPriceCents(), product.getStatus().code(), product.getTradingIntentId(),
+                    product.getPriceCents(), status, product.getTradingIntentId(),
                     product.getCreatedAt(), product.getFrozenAt(), product.getResult(), product.getResultAt());
         } else {
             jdbc.update("""
@@ -161,7 +188,7 @@ public class DataMigrationRunner implements ApplicationRunner {
                         trading_intent_id, created_at, frozen_at, result, result_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, product.getId(), product.getName(), product.getDescription(), product.getImage(),
-                    product.getPriceCents(), product.getStatus().code(), product.getTradingIntentId(),
+                    product.getPriceCents(), status, product.getTradingIntentId(),
                     product.getCreatedAt(), product.getFrozenAt(), product.getResult(), product.getResultAt());
         }
     }

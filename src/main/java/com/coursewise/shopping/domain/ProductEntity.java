@@ -9,9 +9,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
 /**
- * 商品。V2.0 支持同时在售多个商品；旧商品缺少类别或库存时不进入新目录。
- *
- * <p>商品发布后，名称/描述/图片/价格在任何状态下均不得修改（BR-14）。
+ * 商品及其当前可售库存。下架成因由 status 区分，offlineAt 记录本次下架时间。
  */
 @Entity
 @Table(name = "product", indexes = {
@@ -35,7 +33,11 @@ public class ProductEntity {
     @Column(name = "category_id")
     private Long categoryId;
 
-    private Integer stock;
+    @Column(columnDefinition = "integer")
+    private Long stock;
+
+    @Column(name = "offline_at", length = 32)
+    private String offlineAt;
 
     @Column(name = "images_json", columnDefinition = "TEXT")
     private String imagesJson;
@@ -48,8 +50,10 @@ public class ProductEntity {
     public void setDescriptionText(String value) { descriptionText = value; }
     public Long getCategoryId() { return categoryId; }
     public void setCategoryId(Long value) { categoryId = value; }
-    public Integer getStock() { return stock; }
-    public void setStock(Integer value) { stock = value; }
+    public Long getStock() { return stock; }
+    public void setStock(long value) { stock = value; }
+    public String getOfflineAt() { return offlineAt; }
+    public void setOfflineAt(String value) { offlineAt = value; }
     public String getImagesJson() { return imagesJson; }
     public void setImagesJson(String value) { imagesJson = value; }
     public long getVersion() { return version; }
@@ -178,13 +182,8 @@ public class ProductEntity {
         this.resultAt = resultAt;
     }
 
-    /** 是否可接受新的购买意向。 */
+    /** 是否处于在售状态。 */
     public boolean isBuyable() {
         return status != null && status.isBuyable();
-    }
-
-    /** 是否处于"交易中"（已冻结且有绑定买家）。 */
-    public boolean isTrading() {
-        return status == ProductStatus.frozen && tradingIntentId != null;
     }
 }

@@ -1,6 +1,7 @@
 package com.coursewise.shopping.catalog;
 
 import com.coursewise.shopping.ShoppingService;
+import com.coursewise.shopping.ShopWriteTransaction;
 import com.coursewise.shopping.domain.*;
 import com.coursewise.shopping.repository.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,9 +13,9 @@ import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.*;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
@@ -24,11 +25,11 @@ import java.io.*;
 import java.math.BigDecimal;
 import java.nio.file.*;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.*;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
-/** SRS V2.0：目录、搜索、详情、类别、发布、库存/类别编辑。 */
+/** 商品目录、目录维护及卖家商品状态操作。 */
 @Service
 public class CatalogService {
     private final ProductRepository products;
@@ -36,16 +37,14 @@ public class CatalogService {
     private final ShoppingService auth;
     private final ObjectMapper mapper;
     private final Path uploads;
-    private final TransactionTemplate transaction;
-    // SQLite 单实例部署：写锁覆盖事务提交，类别删除与发布/改挂共用锁。
-    private final ReentrantLock writeLock = new ReentrantLock(true);
+    private final ShopWriteTransaction writes;
 
     public CatalogService(ProductRepository products, CategoryRepository categories, ShoppingService auth,
-                          ObjectMapper mapper, PlatformTransactionManager manager,
+                          ObjectMapper mapper, ShopWriteTransaction writes,
                           @Value("${shopping.upload-dir}") String uploadDir) {
         this.products = products; this.categories = categories; this.auth = auth; this.mapper = mapper;
         uploads = Path.of(uploadDir).toAbsolutePath().normalize();
-        transaction = new TransactionTemplate(manager);
+        this.writes = writes;
     }
 
     public record CategoryInput(String name, Long parentId) {}
@@ -62,10 +61,8 @@ public class CatalogService {
             List<Predicate> filters = new ArrayList<>();
             filters.add(cb.isNotNull(root.get("categoryId")));
             filters.add(cb.isNotNull(root.get("stock")));
-            if (!admin) {
-                filters.add(root.get("status").in(ProductStatus.active, ProductStatus.resumed));
-                filters.add(cb.greaterThan(root.get("stock"), 0));
-            }
+            filters.add(cb.equal(root.get("status"), ProductStatus.active));
+            filters.add(cb.greaterThan(root.get("stock"), 0L));
             if (categoryId != null) filters.add(cb.equal(root.get("categoryId"), categoryId));
             if (!keyword.isEmpty()) {
                 String like = "%" + keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
@@ -224,20 +221,77 @@ public class CatalogService {
         auth.requireSession(session);
         return write(() -> {
             ProductEntity p = requireProduct(id);
-            if (input.version() == null || input.version() != p.getVersion())
-                throw conflict("version", "商品已更新，请刷新后再编辑");
-            if (input.stock() == null || input.stock() < 0) throw bad("stock", "库存必须为非负整数");
+            if (input.version() == null) throw bad("version", "库存与类别编辑须提供商品版本");
+            verifyVersion(p, input.version());
             CategoryEntity category = requireLeaf(input.categoryId());
-            // 交易处理中调零需要队列模块先按 BR-34 取得卖家的逐条处置决定。
-            if (p.getTradingIntentId() != null && input.stock() == 0)
-                throw conflict("stock", "请先完成当前交易及未成交意向处置，再将库存调为 0");
-            if ((p.isBuyable() || p.getStatus() == ProductStatus.frozen) && input.stock() == 0) {
-                p.setStatus(ProductStatus.depleted); p.setResultAt(Instant.now().toString());
-            }
-            p.setStock(input.stock()); p.setCategoryId(category.getId());
-            // depleted / sold / withdrawn 均不会因补货自动上架。
+            if (!p.isBuyable() && !Objects.equals(p.getCategoryId(), category.getId()))
+                throw conflict("categoryId", "已下架商品不能更换类别");
+            if (input.stock() == null) throw bad("stock", "库存必须为非负整数");
+            changeStock(p, input.stock().longValue());
+            p.setCategoryId(category.getId());
             return view(products.saveAndFlush(p), true);
         });
+    }
+
+    public ObjectNode adjustStock(String session, long id, long stock, Long version) {
+        auth.requireSession(session);
+        return write(() -> {
+            ProductEntity product = requireProduct(id);
+            verifyVersion(product, version);
+            changeStock(product, stock);
+            return view(products.saveAndFlush(product), true);
+        });
+    }
+
+    public ObjectNode withdraw(String session, long id, Long version) {
+        auth.requireSession(session);
+        return write(() -> {
+            ProductEntity product = requireProduct(id);
+            verifyVersion(product, version);
+            if (!product.isBuyable()) throw conflict("product", "仅在售商品可以手动下架");
+            product.setStatus(ProductStatus.withdrawn);
+            product.setOfflineAt(Instant.now().toString());
+            return view(products.saveAndFlush(product), true);
+        });
+    }
+
+    @Transactional(readOnly = true)
+    public ArrayNode offlineProducts(String session) {
+        auth.requireSession(session);
+        var offline = products.findByStatusIn(List.of(ProductStatus.depleted, ProductStatus.withdrawn));
+        var newestFirst = Comparator.comparing(
+                (ProductEntity product) -> parseOfflineTime(product.getOfflineAt()),
+                Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(ProductEntity::getId, Comparator.reverseOrder());
+        ArrayNode result = mapper.createArrayNode();
+        offline.stream().sorted(newestFirst).map(product -> view(product, true)).forEach(result::add);
+        return result;
+    }
+
+    private void changeStock(ProductEntity product, long stock) {
+        if (stock < 0) throw bad("stock", "库存必须为非负整数");
+        product.setStock(stock);
+        if (product.getStatus() == ProductStatus.withdrawn) return;
+        if (stock > 0) {
+            product.setStatus(ProductStatus.active);
+            product.setOfflineAt(null);
+        } else if (product.isBuyable()) {
+            product.setStatus(ProductStatus.depleted);
+            product.setOfflineAt(Instant.now().toString());
+        }
+    }
+
+    private void verifyVersion(ProductEntity product, Long version) {
+        if (version != null && version != product.getVersion())
+            throw conflict("version", "商品已更新，请刷新后重试");
+    }
+
+    private Instant parseOfflineTime(String value) {
+        try {
+            return value == null ? null : Instant.parse(value);
+        } catch (DateTimeParseException ignored) {
+            return null; // Legacy rows can lack a usable timestamp.
+        }
     }
 
     public ObjectNode uploadDescriptionImage(String session, MultipartFile file) {
@@ -249,13 +303,23 @@ public class CatalogService {
         ObjectNode node = mapper.createObjectNode();
         node.put("id", p.getId()).put("name", p.getName()).put("priceCents", p.getPriceCents());
         node.put("image", p.getImage().isEmpty() ? "/placeholder.svg" : p.getImage());
-        CategoryEntity leaf = requireCategory(p.getCategoryId());
-        ObjectNode category = categoryView(leaf);
-        category.put("parentName", requireCategory(leaf.getParentId()).getName());
-        node.set("category", category);
+        if (p.getCategoryId() == null) {
+            node.putNull("category");
+        } else {
+            CategoryEntity leaf = requireCategory(p.getCategoryId());
+            ObjectNode category = categoryView(leaf);
+            category.put("parentName", requireCategory(leaf.getParentId()).getName());
+            node.set("category", category);
+        }
         if (full) {
             node.put("description", p.getDescription()).put("stock", p.getStock())
                     .put("status", p.getStatus().code()).put("createdAt", p.getCreatedAt()).put("version", p.getVersion());
+            node.put("offlineAt", p.getOfflineAt());
+            node.put("offlineReason", switch (p.getStatus()) {
+                case active -> null;
+                case depleted -> "sold_out";
+                case withdrawn -> "manual";
+            });
             try { node.set("images", mapper.readTree(p.getImagesJson() == null ? "[]" : p.getImagesJson())); }
             catch (IOException e) { throw new IllegalStateException("商品图片数据异常", e); }
         }
@@ -317,9 +381,7 @@ public class CatalogService {
     }
 
     private <T> T write(Supplier<T> action) {
-        writeLock.lock();
-        try { return transaction.execute(status -> action.get()); }
-        finally { writeLock.unlock(); }
+        return writes.execute(action);
     }
     private ProductEntity requireProduct(long id) {
         ProductEntity p = products.findById(id).orElseThrow(this::missing);

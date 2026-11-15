@@ -55,10 +55,12 @@ public class ShoppingController {
                     .body(Files.readAllBytes(target));
         } catch (java.io.IOException e) { throw new ResponseStatusException(HttpStatus.NOT_FOUND, "图片不存在"); }
     }
-    // 旧匿名意向、口令码与单商品交易接口不兼容 V2.0，禁止借旧路由操作新商品。
+    // 订单制停用旧意向、冻结与交易接口。
     @RequestMapping({"/api/product", "/api/intents", "/api/intents/**", "/api/admin/product",
-            "/api/admin/intents", "/api/admin/freeze", "/api/admin/unfreeze", "/api/admin/trade/**", "/api/admin/history"})
-    public void legacy() { throw new ResponseStatusException(HttpStatus.GONE, "旧版接口已停用，请使用 V2.0 商品接口"); }
+            "/api/admin/intents", "/api/admin/freeze", "/api/admin/unfreeze", "/api/admin/trade/**", "/api/admin/history",
+            "/api/customer/intents", "/api/admin/trades", "/api/admin/trades/**", "/api/admin/product-history",
+            "/api/admin/products/{id}/restock", "/api/admin/products/{id}/relist"})
+    public void legacy() { throw new ResponseStatusException(HttpStatus.GONE, "旧版接口已停用，请使用新版商品和订单接口"); }
 
     private ResponseCookie cookie(String value, boolean expired) {
         var builder = ResponseCookie.from("seller_session",value).httpOnly(true).sameSite("Strict").path("/");

@@ -16,7 +16,7 @@ async function render() {
       const product = await api(`/api/products/${encodeURIComponent(params.get('product'))}${params.get("from")==="favorite"?"/favorite-detail":""}`);
       if (sequence !== requestId) return;
       const images = product.images.length ? product.images : ['/placeholder.svg'];
-      const sellable = product.status === 'active' || product.status === 'resumed';
+      const sellable = product.status === 'active';
       const stockLeft = Number(product.stock || 0);
       $('#detail').innerHTML = `<div class="detail-top"><a href="/" id="back">← 返回商品列表</a><span class="status">${sellable ? '在售' : '已下架'}</span></div><div class="detail-layout"><div><img class="main-image" src="${escapeHtml(images[0])}" alt="${escapeHtml(product.name)}"><div class="thumbnails">${images.map((src,i)=>`<button type="button" aria-label="查看第 ${i+1} 张图片" aria-pressed="${i===0}" data-image="${escapeHtml(src)}"><img src="${escapeHtml(src)}" alt="商品图片 ${i+1}"></button>`).join('')}</div></div><div class="detail-copy"><p class="muted">${escapeHtml(product.category.parentName)} / ${escapeHtml(product.category.name)}</p><h2>${escapeHtml(product.name)}</h2><p class="money">${money(product.priceCents)}</p><p>可售库存：${stockLeft} 件</p><div class="description"><h3>商品描述</h3>${product.description || '<p class="muted">暂无商品描述</p>'}</div></div></div>`;
       document.querySelectorAll('[data-image]').forEach(button=>button.onclick=()=>{ $('.main-image').src=button.dataset.image; document.querySelectorAll('[data-image]').forEach(b=>b.setAttribute('aria-pressed',String(b===button))); });

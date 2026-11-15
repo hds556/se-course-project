@@ -1,6 +1,7 @@
 package com.coursewise.shopping.seller;
 
 import com.coursewise.shopping.ShoppingService;
+import com.coursewise.shopping.ShopWriteTransaction;
 import com.coursewise.shopping.domain.CustomerEntity;
 import com.coursewise.shopping.domain.OrderEntity;
 import com.coursewise.shopping.domain.OrderItemEntity;
@@ -71,9 +72,6 @@ public class SellerOrderService {
 
     static {
         PRODUCT_STATUS_LABELS.put("active", "在售");
-        PRODUCT_STATUS_LABELS.put("resumed", "在售");
-        PRODUCT_STATUS_LABELS.put("frozen", "已冻结");
-        PRODUCT_STATUS_LABELS.put("sold", "已售（终态）");
         PRODUCT_STATUS_LABELS.put("depleted", "售罄下架");
         PRODUCT_STATUS_LABELS.put("withdrawn", "手动下架");
     }
@@ -85,10 +83,12 @@ public class SellerOrderService {
     private final CustomerRepository customers;
     private final ShoppingService auth;
     private final ObjectMapper mapper;
+    private final ShopWriteTransaction writes;
 
     public SellerOrderService(SellerOrderRepository orders, SellerOrderItemRepository orderItemStats,
                               OrderItemRepository orderItems, ProductRepository products,
-                              CustomerRepository customers, ShoppingService auth, ObjectMapper mapper) {
+                              CustomerRepository customers, ShoppingService auth, ObjectMapper mapper,
+                              ShopWriteTransaction writes) {
         this.orders = orders;
         this.orderItemStats = orderItemStats;
         this.orderItems = orderItems;
@@ -96,6 +96,7 @@ public class SellerOrderService {
         this.customers = customers;
         this.auth = auth;
         this.mapper = mapper;
+        this.writes = writes;
     }
 
     // ==================== 14209 / 14214 两个订单查询入口 ====================
@@ -182,9 +183,12 @@ public class SellerOrderService {
      *               之所以允许显式传目标状态，是为了让「不可跳过」这条规则在接口层就能被拒绝，
      *               而不是只靠前端不提供那个按钮。
      */
-    @Transactional
     public ObjectNode advance(String session, long orderId, String target) {
         auth.requireSession(session);
+        return writes.execute(() -> advanceOrder(orderId, target));
+    }
+
+    private ObjectNode advanceOrder(long orderId, String target) {
         OrderEntity order = orders.findById(orderId)
                 .orElseThrow(() -> new OrderException(HttpStatus.NOT_FOUND, "orderId", "订单不存在"));
 
@@ -228,9 +232,12 @@ public class SellerOrderService {
      *
      * <p>「已取消」「交易完成」不可再次取消：前者是幂等语义下的终态，后者交易已结束不可撤销。
      */
-    @Transactional
     public ObjectNode cancel(String session, long orderId) {
         auth.requireSession(session);
+        return writes.execute(() -> cancelOrder(orderId));
+    }
+
+    private ObjectNode cancelOrder(long orderId) {
         OrderEntity order = orders.findById(orderId)
                 .orElseThrow(() -> new OrderException(HttpStatus.NOT_FOUND, "orderId", "订单不存在"));
 
