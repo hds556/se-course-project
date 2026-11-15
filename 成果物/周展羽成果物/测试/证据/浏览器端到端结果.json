@@ -1,0 +1,93 @@
+{
+  "base": "http://127.0.0.1:18080",
+  "customer": "e2e_44135235",
+  "productId": 53,
+  "steps": [
+    {
+      "name": "E2E-00 卖家会话准备",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "E2E-01 准备商品数据",
+      "ok": true,
+      "detail": "id=53"
+    },
+    {
+      "name": "E2E-02 注册成功并跳转登录页",
+      "ok": true,
+      "detail": "http://127.0.0.1:18080/customer-login.html?registered=1"
+    },
+    {
+      "name": "E2E-03 登录成功",
+      "ok": true,
+      "detail": "http://127.0.0.1:18080/orders.html"
+    },
+    {
+      "name": "E2E-04 详情展示可售库存与描述",
+      "ok": true,
+      "detail": "← 返回商品列表 在售  数码 / 耳机  E2E演示商品-1794744135205  ¥88.00  可售库存：5 件  商品描述  端到端测试用商品，含加"
+    },
+    {
+      "name": "E2E-05 详情页收藏成功",
+      "ok": true,
+      "detail": "取消收藏"
+    },
+    {
+      "name": "E2E-06 加入购物车成功",
+      "ok": true,
+      "detail": "已加入购物车，当前购物车共 1 件该商品"
+    },
+    {
+      "name": "E2E-07 购物车提交订单成功",
+      "ok": true,
+      "detail": "notice= url=http://127.0.0.1:18080/orders.html"
+    },
+    {
+      "name": "E2E-08 我的订单显示刚下的订单",
+      "ok": true,
+      "detail": "订单号 00000038 2026/11/15 20:02:24 1 种商品 ¥88.00 客户下单 取消订单"
+    },
+    {
+      "name": "E2E-09 客户取消订单生效",
+      "ok": true,
+      "detail": "订单号 00000038 2026/11/15 20:02:24 1 种商品 ¥88.00 已取消"
+    },
+    {
+      "name": "E2E-09b 二次下单供卖家处理",
+      "ok": true,
+      "detail": "http://127.0.0.1:18080/orders.html"
+    },
+    {
+      "name": "E2E-10 收藏列表含该商品",
+      "ok": true,
+      "detail": "在售 E2E演示商品-1794744135205 ¥88.00 收藏于 2026/11/15 20:02:21 查看详情"
+    },
+    {
+      "name": "E2E-11 后台客户管理可见新客户",
+      "ok": true,
+      "detail": "全部客户 刷新  系统内全部注册账号，注册即入列，与是否下单无关；按注册时间倒序。列表只读——不提供编辑、禁用、删除、导"
+    },
+    {
+      "name": "E2E-12 卖家推进订单状态",
+      "ok": true,
+      "detail": "订单号 00000039 e2e_44135235 · 13512345678 2026/11/15 20:02:30 ¥88.00 商家确认 推进到「备货完成"
+    },
+    {
+      "name": "E2E-13 历史商品含两类下架成因",
+      "ok": true,
+      "detail": "历史商品 刷新  此处展示售罄和手动下架的商品。售罄商品库存恢复为正数时自动回到在售列表；手动下架的商品仅可查看。  商品\t价格\t类别\t库存\t下架原因\t下架时间"
+    },
+    {
+      "name": "E2E-14 页面无资源 404 与脚本异常（favicon 除外）",
+      "ok": true,
+      "detail": "{\"notFound\":[],\"consoleErrors\":1}"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 ()"
+  ],
+  "notFound": [
+    "/favicon.ico"
+  ]
+}

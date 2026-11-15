@@ -1,0 +1,651 @@
+[
+  {
+    "id": "TC-C01",
+    "title": "未登录浏览商品列表，只含在售商品",
+    "pass": true,
+    "detail": {
+      "status": 200,
+      "total": 6
+    },
+    "srs": "FR-C-01/AC-01"
+  },
+  {
+    "id": "TC-C02",
+    "title": "列表卡片字段为名称/价格/主图/类别，不含描述与库存",
+    "pass": true,
+    "detail": [
+      "category",
+      "id",
+      "image",
+      "name",
+      "priceCents"
+    ],
+    "srs": "FR-C-01"
+  },
+  {
+    "id": "TC-C03",
+    "title": "按二级类别筛选只返回该类别商品",
+    "pass": true,
+    "detail": {
+      "total": 2
+    },
+    "srs": "FR-C-01"
+  },
+  {
+    "id": "TC-C04",
+    "title": "按名称关键词搜索命中",
+    "pass": true,
+    "detail": 1,
+    "srs": "FR-C-02"
+  },
+  {
+    "id": "TC-C05",
+    "title": "描述纯文本关键词可命中（富文本已剥离）",
+    "pass": true,
+    "detail": 1,
+    "srs": "FR-C-02/AC-07"
+  },
+  {
+    "id": "TC-C06",
+    "title": "类别名不参与匹配（仅因归类不命中）",
+    "pass": true,
+    "detail": [
+      1
+    ],
+    "srs": "FR-C-02"
+  },
+  {
+    "id": "TC-C07",
+    "title": "空关键词返回全部在售商品",
+    "pass": true,
+    "detail": 6,
+    "srs": "FR-C-02"
+  },
+  {
+    "id": "TC-C08",
+    "title": "在售商品详情含价格/可售库存/描述/图片",
+    "pass": true,
+    "detail": {
+      "stock": 10,
+      "readOnly": false
+    },
+    "srs": "FR-C-03"
+  },
+  {
+    "id": "TC-C09",
+    "title": "缺电话注册被拒绝并指出缺失字段",
+    "pass": true,
+    "detail": {
+      "status": 400,
+      "body": {
+        "error": "电话为必填项"
+      },
+      "有fieldErrors": false
+    },
+    "srs": "FR-C-04"
+  },
+  {
+    "id": "TC-C10",
+    "title": "密码 7 位被拒绝",
+    "pass": true,
+    "detail": {
+      "status": 400
+    },
+    "srs": "FR-C-04"
+  },
+  {
+    "id": "TC-C11",
+    "title": "密码 8 位可注册，且注册后不自动登录",
+    "pass": true,
+    "detail": {
+      "register": 201,
+      "me": 401
+    },
+    "srs": "FR-C-04"
+  },
+  {
+    "id": "TC-C12",
+    "title": "重复用户名注册被拒绝",
+    "pass": true,
+    "detail": {
+      "status": 409,
+      "body": {
+        "error": "该用户名已被占用"
+      }
+    },
+    "srs": "FR-C-04"
+  },
+  {
+    "id": "TC-C13",
+    "title": "同一电话可注册两个不同账号",
+    "pass": true,
+    "detail": [
+      201,
+      201
+    ],
+    "srs": "FR-C-04"
+  },
+  {
+    "id": "TC-C14",
+    "title": "电话不能作为登录凭证",
+    "pass": true,
+    "detail": {
+      "status": 401
+    },
+    "srs": "FR-C-05"
+  },
+  {
+    "id": "TC-C15",
+    "title": "用户名不存在与密码错误提示一致",
+    "pass": true,
+    "detail": {
+      "m1": null,
+      "m2": null
+    },
+    "srs": "FR-C-05"
+  },
+  {
+    "id": "TC-C16",
+    "title": "退出登录后收藏/购物车/下单入口不可用",
+    "pass": true,
+    "detail": {
+      "logout": 200,
+      "favorites": 401
+    },
+    "srs": "FR-C-05"
+  },
+  {
+    "id": "TC-C17",
+    "title": "未登录收藏返回 401",
+    "pass": true,
+    "detail": {
+      "status": 401
+    },
+    "srs": "FR-C-06"
+  },
+  {
+    "id": "TC-C18",
+    "title": "收藏/取消收藏生效",
+    "pass": true,
+    "detail": {
+      "add": 201,
+      "del": 200
+    },
+    "srs": "FR-C-06"
+  },
+  {
+    "id": "TC-C19",
+    "title": "重复收藏不产生第二条记录",
+    "pass": true,
+    "detail": {
+      "count": 1
+    },
+    "srs": "FR-C-06"
+  },
+  {
+    "id": "TC-C20",
+    "title": "收藏详情仅本人可访问（他人已登录访问 404）",
+    "pass": true,
+    "detail": {
+      "owner": 200,
+      "other": 404
+    },
+    "srs": "FR-C-03"
+  },
+  {
+    "id": "TC-C21",
+    "title": "未登录加购返回 401",
+    "pass": true,
+    "detail": {
+      "status": 401
+    },
+    "srs": "FR-C-07"
+  },
+  {
+    "id": "TC-C22",
+    "title": "加购成功且不占用库存（仅一行）",
+    "pass": true,
+    "detail": {
+      "rows": 1,
+      "qty": 2,
+      "stock": [
+        10,
+        10
+      ]
+    },
+    "srs": "FR-C-07"
+  },
+  {
+    "id": "TC-C23",
+    "title": "修改数量与移除生效",
+    "pass": true,
+    "detail": {
+      "patch": 200,
+      "del": 200
+    },
+    "srs": "FR-C-07"
+  },
+  {
+    "id": "TC-C24",
+    "title": "同一商品重复加购仍只有一行",
+    "pass": true,
+    "detail": {
+      "rows": 1
+    },
+    "srs": "FR-C-07"
+  },
+  {
+    "id": "TC-C25",
+    "title": "多件下单生成 1 笔订单（2 条明细）且金额正确",
+    "pass": true,
+    "detail": {
+      "status": 201,
+      "orderStatus": "placed",
+      "lines": 2,
+      "total": 22000
+    },
+    "srs": "FR-C-08/AC-02"
+  },
+  {
+    "id": "TC-C26",
+    "title": "下单后选中项删除、未选中项保留",
+    "pass": true,
+    "detail": {
+      "left": [
+        4
+      ],
+      "keep": 4
+    },
+    "srs": "FR-C-08"
+  },
+  {
+    "id": "TC-C27",
+    "title": "下单即扣减可售库存",
+    "pass": true,
+    "detail": {
+      "A": [
+        10,
+        8
+      ],
+      "C": [
+        2,
+        1
+      ]
+    },
+    "srs": "FR-C-08"
+  },
+  {
+    "id": "TC-C28",
+    "title": "改价后历史订单单价仍为下单时快照",
+    "pass": true,
+    "detail": {
+      "edit": 200,
+      "unit": 10000,
+      "total": 22000
+    },
+    "srs": "FR-C-08/FR-S-05/AC-08"
+  },
+  {
+    "id": "TC-C29",
+    "title": "部分缺货：缺货项剔除、其余正常下单",
+    "pass": true,
+    "detail": {
+      "status": 201,
+      "lines": 1,
+      "rejected": {
+        "2": "库存不足（可售 1 件，需要 3 件），不能下单"
+      }
+    },
+    "srs": "FR-C-08/AC-04"
+  },
+  {
+    "id": "TC-C30",
+    "title": "缺货商品不扣库存、不进入订单",
+    "pass": true,
+    "detail": {
+      "B": 1,
+      "A": [
+        8,
+        7
+      ]
+    },
+    "srs": "FR-C-08"
+  },
+  {
+    "id": "TC-C31",
+    "title": "全部缺货时不生成订单（409）",
+    "pass": true,
+    "detail": {
+      "status": 409,
+      "body": {
+        "error": "所选商品均无法下单：库存不足（可售 1 件，需要 99 件），不能下单",
+        "fieldErrors": {},
+        "itemErrors": {
+          "2": "库存不足（可售 1 件，需要 99 件），不能下单"
+        }
+      }
+    },
+    "srs": "FR-C-08"
+  },
+  {
+    "id": "TC-C32",
+    "title": "未勾选商品提交被拒绝（400）",
+    "pass": true,
+    "detail": {
+      "status": 400,
+      "body": {
+        "error": "请先勾选要下单的商品",
+        "fieldErrors": {
+          "cartItemIds": "请先勾选要下单的商品"
+        },
+        "itemErrors": {}
+      }
+    },
+    "srs": "FR-C-08"
+  },
+  {
+    "id": "TC-C33",
+    "title": "并发提交不超卖（1 成功 1 缺货，库存不为负）",
+    "pass": true,
+    "detail": {
+      "results": {
+        "c1": 201,
+        "c2": 409
+      },
+      "stock": [
+        5,
+        0
+      ]
+    },
+    "srs": "FR-C-08/AC-09"
+  },
+  {
+    "id": "TC-C34",
+    "title": "客户在「客户下单」状态可取消，库存回补",
+    "pass": true,
+    "detail": {
+      "cancel": 200,
+      "status": "cancelled",
+      "stock": [
+        7,
+        7
+      ]
+    },
+    "srs": "FR-C-09/AC-03"
+  },
+  {
+    "id": "TC-C35",
+    "title": "取消后订单仍在「我的订单」中，状态已取消",
+    "pass": true,
+    "detail": 1,
+    "srs": "FR-C-09/FR-C-10"
+  },
+  {
+    "id": "TC-C36",
+    "title": "「开始发货」后客户不能取消（409）",
+    "pass": true,
+    "detail": {
+      "status": 409,
+      "body": {
+        "error": "订单已「开始发货」，不能再取消",
+        "fieldErrors": {
+          "orderId": "订单已「开始发货」，不能再取消"
+        },
+        "itemErrors": {}
+      }
+    },
+    "srs": "FR-C-09"
+  },
+  {
+    "id": "TC-C37",
+    "title": "售罄下架商品在取消后自动恢复在售",
+    "pass": true,
+    "detail": {
+      "afterOrder": "depleted",
+      "cancel": 200,
+      "afterCancel": "active"
+    },
+    "srs": "FR-C-09/FR-S-06"
+  },
+  {
+    "id": "TC-G01",
+    "title": "订单按序推进四次到达「交易完成」",
+    "pass": true,
+    "detail": {
+      "seq": [
+        [
+          200,
+          "confirmed"
+        ],
+        [
+          200,
+          "packed"
+        ],
+        [
+          200,
+          "shipped"
+        ],
+        [
+          200,
+          "completed"
+        ]
+      ],
+      "final": "completed"
+    },
+    "srs": "FR-S-08/AC-05"
+  },
+  {
+    "id": "TC-G02",
+    "title": "跳状态推进被拒绝（409）",
+    "pass": true,
+    "detail": {
+      "status": 409,
+      "body": {
+        "error": "订单状态只能顺序推进：当前「客户下单」的下一步只能是「商家确认」，不能跳到「备货完成」",
+        "fieldErrors": {
+          "orderId": "订单状态只能顺序推进：当前「客户下单」的下一步只能是「商家确认」，不能跳到「备货完成」"
+        },
+        "itemErrors": {}
+      }
+    },
+    "srs": "FR-S-08/FR-S-14"
+  },
+  {
+    "id": "TC-G03",
+    "title": "推进到交易完成不再扣库存",
+    "pass": true,
+    "detail": {
+      "stock": [
+        0,
+        0
+      ]
+    },
+    "srs": "FR-S-08"
+  },
+  {
+    "id": "TC-G04",
+    "title": "已完成订单不能再推进或取消（409）",
+    "pass": true,
+    "detail": {
+      "advance": 409,
+      "cancel": 409
+    },
+    "srs": "FR-S-08/FR-S-14"
+  },
+  {
+    "id": "TC-H01",
+    "title": "「开始发货」状态卖家可取消，库存回补",
+    "pass": true,
+    "detail": {
+      "cancel": 200,
+      "status": "cancelled",
+      "stock": [
+        5,
+        5
+      ]
+    },
+    "srs": "FR-S-09/AC-06"
+  },
+  {
+    "id": "TC-H02",
+    "title": "已取消订单再次取消被拒绝（409）",
+    "pass": true,
+    "detail": {
+      "status": 409
+    },
+    "srs": "FR-S-09"
+  },
+  {
+    "id": "TC-I01",
+    "title": "客户购买历史含进行中/完成/取消三种状态",
+    "pass": true,
+    "detail": {
+      "statuses": "{'cancelled', 'placed', 'completed'}",
+      "total": 3
+    },
+    "srs": "FR-S-11/AC-10"
+  },
+  {
+    "id": "TC-I02",
+    "title": "他人订单号访问返回 404/403",
+    "pass": true,
+    "detail": {
+      "status": 404
+    },
+    "srs": "FR-C-10"
+  },
+  {
+    "id": "TC-I03",
+    "title": "商品订单记录含已取消订单",
+    "pass": true,
+    "detail": {
+      "total": 1
+    },
+    "srs": "FR-S-12"
+  },
+  {
+    "id": "TC-I04",
+    "title": "未登录访问卖家接口返回 401",
+    "pass": true,
+    "detail": [
+      401,
+      401,
+      401
+    ],
+    "srs": "FR-S-01/BR-40"
+  },
+  {
+    "id": "TC-I05",
+    "title": "客户账号不能登录卖家后台",
+    "pass": true,
+    "detail": {
+      "status": 401
+    },
+    "srs": "FR-S-01"
+  },
+  {
+    "id": "TC-J01",
+    "title": "库存改 0 自动下架（售罄），买家端不可见、详情 404",
+    "pass": true,
+    "detail": {
+      "stock": 200,
+      "status": "depleted",
+      "listHidden": true,
+      "detail": 404
+    },
+    "srs": "FR-S-06/AC-11"
+  },
+  {
+    "id": "TC-J02",
+    "title": "售罄下架商品补货后自动恢复在售",
+    "pass": true,
+    "detail": {
+      "restore": 200,
+      "status": "active"
+    },
+    "srs": "FR-S-06/AC-12"
+  },
+  {
+    "id": "TC-J03",
+    "title": "手动下架为终态：调库存也不恢复在售",
+    "pass": true,
+    "detail": {
+      "withdraw": 200,
+      "afterWithdraw": "withdrawn",
+      "afterStock": "withdrawn"
+    },
+    "srs": "FR-S-07/FR-S-06/AC-13"
+  },
+  {
+    "id": "TC-J04",
+    "title": "已下架商品不可编辑内容（409/400）",
+    "pass": true,
+    "detail": {
+      "status": 409,
+      "body": {
+        "error": "已下架商品只读，不能编辑商品信息",
+        "fieldErrors": {
+          "product": "已下架商品只读，不能编辑商品信息"
+        }
+      }
+    },
+    "srs": "FR-S-05/FR-S-14"
+  },
+  {
+    "id": "TC-J05",
+    "title": "有在途订单时手动下架，订单仍可推进到完成",
+    "pass": true,
+    "detail": {
+      "withdraw": 200,
+      "advance": [
+        200,
+        200,
+        200,
+        200
+      ],
+      "final": "completed"
+    },
+    "srs": "FR-S-07/AC-13"
+  },
+  {
+    "id": "TC-K01",
+    "title": "卖家客户列表含新注册客户，且无编辑/删除能力",
+    "pass": true,
+    "detail": {
+      "total": 33
+    },
+    "srs": "FR-S-10"
+  },
+  {
+    "id": "TC-K02",
+    "title": "旧「历史下单记录」接口已迁移到 /api/orders（不再返回意向数据）",
+    "pass": true,
+    "detail": {
+      "status": 200,
+      "movedTo": "/api/orders"
+    },
+    "srs": "FR-C-10/附录C K-1"
+  },
+  {
+    "id": "TC-K03",
+    "title": "客户会话信息可用（收藏/购物车/订单身份一致）",
+    "pass": true,
+    "detail": {
+      "status": 200
+    },
+    "srs": "FR-C-05"
+  },
+  {
+    "id": "TC-J06",
+    "title": "历史商品列表区分售罄下架与手动下架两类成因",
+    "pass": true,
+    "detail": {
+      "reasons": [
+        "manual",
+        "sold_out"
+      ],
+      "count": 5
+    },
+    "srs": "FR-S-13/AC-14"
+  }
+]
