@@ -163,7 +163,7 @@ header(s2, '实现过程：前端 · 后端 · 数据库',
 
 COLUMNS = [
     ('数据库', MARGIN, 3.05, [
-        ('新增 4 张表', 'orders、order_item、cart_item、favorite'),
+        ('新增 4 个实体', '对应新表 orders、order_item、cart_item、favorite'),
         ('唯一索引', '(customer_id, product_id) 保证收藏与购物车同商品只有一条'),
         ('订单主表', '只存下单时间、无地址；状态整单流转'),
         ('明细快照', 'order_item 固化下单时的商品名称与单价'),
@@ -199,55 +199,38 @@ rich_box(s2, MARGIN, 4.68, W_IN - MARGIN * 2, 0.40,
             '逐商品校验而非整单拒绝，是因为 1 件缺货不应让其余商品白忙一场。', False, MUTED)]], size=10)
 footer(s2, 2)
 
-# ==================== 第 3 页：成果 ====================
+# ==================== 第 3 页：成果（截图展示） ====================
 s3 = prs.slides.add_slide(BLANK)
-header(s3, '成果：五条需求全部交付，测试与实测双验证',
-       '仅针对本人 14201～14205 的集成测试 20 条全部通过｜浏览器端到端走通完整下单链路')
+header(s3, '成果：五条需求的实现效果',
+       '以下截图对应本人负责的 14201～14205')
 
-STATS = [('5 / 5', '需求条目已完成'),
-         ('20 / 20', '本人需求用例通过'),
-         ('2 / 1', '新建页面 / 改造页面'),
-         ('4', '新增数据表'),
-         ('13', '新增接口')]
-
-top = 1.32
-for number, label in STATS:
-    textbox(s3, MARGIN, top, 1.42, 0.38, number, 17, True, ACCENT, anchor=MSO_ANCHOR.MIDDLE)
-    textbox(s3, MARGIN + 1.48, top, 2.30, 0.38, label, 10, False, MUTED, anchor=MSO_ANCHOR.MIDDLE)
-    top += 0.44
-
-textbox(s3, MARGIN, 3.62, 4.0, 0.26, '已验证的关键行为', 11.5, True, INK)
-rich_box(s3, MARGIN, 3.92, 3.72, 1.10, [
-    [('• 8 个并发买家抢 5 件库存，恰好 5 单成功', False, MUTED)],
-    [('• 库存归零不为负，无超卖', False, MUTED)],
-    [('• 部分缺货：缺货件标红，其余照常成单', False, MUTED)],
-    [('• 改价后回看订单仍显示下单时单价', False, MUTED)],
-    [('• 发货后取消 / 取消他人订单均被拒绝', False, MUTED)],
-], size=9, spacing=1.0, space_after=2)
-
-# 右侧截图：上二下一。原图为 16:10 整页截图，顶部有一段空白页眉，
-# 用 crop 裁掉页眉后再按框内等比缩放，避免整图缩小导致文字看不清。
+# 三张截图排成一行；原图为 16:10 整页截图，裁掉顶部空白页眉
 SHOTS = [
-    ('02_购物车_勾选与已下架置灰.png', '购物车：勾选提交，下架商品置灰', 4.86, 1.26, 2.40, 1.44),
-    ('04_我的订单_按时间倒序与明细展开.png', '我的订单：状态标签与行内明细', 4.86, 3.06, 2.40, 1.44),
-    ('06_提交订单_缺货逐项提示.png', '缺货逐项提示，其余商品照常成单', 7.44, 3.06, 2.40, 1.44),
+    ('02_购物车_勾选与已下架置灰.png', '购物车：勾选提交，下架商品置灰'),
+    ('03_我的收藏_含已下架标记.png', '我的收藏：已下架商品保留并标记'),
+    ('04_我的订单_按时间倒序与明细展开.png', '我的订单：状态标签与行内明细'),
 ]
 
-CROP_TOP = 0.11   # 裁掉顶部 11% 的空白页眉
+GAP = 0.34
+IMG_W = (W_IN - MARGIN * 2 - GAP * 2) / 3
+IMG_H = IMG_W / 1.6          # 16:10 原始比例
+TOP_Y = 2.30
+CROP_TOP = 0.11              # 裁掉顶部 11% 的空白页眉
 
-for file_name, caption, x, y, w, h in SHOTS:
+for index, (file_name, caption) in enumerate(SHOTS):
     slide_path = os.path.join(SHOT, file_name)
     if not os.path.exists(slide_path):
         continue
-    frame = s3.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
+    x = MARGIN + index * (IMG_W + GAP)
+    frame = s3.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(TOP_Y), Inches(IMG_W), Inches(IMG_H))
     frame.fill.solid()
     frame.fill.fore_color.rgb = WHITE
     frame.line.color.rgb = LINE
     frame.line.width = Pt(0.75)
     frame.shadow.inherit = False
-    picture = s3.shapes.add_picture(slide_path, Inches(x), Inches(y), Inches(w), Inches(h))
+    picture = s3.shapes.add_picture(slide_path, Inches(x), Inches(TOP_Y), Inches(IMG_W), Inches(IMG_H))
     picture.crop_top = CROP_TOP
-    textbox(s3, x, y + h + 0.02, w, 0.20, caption, 8, False, MUTED)
+    textbox(s3, x, TOP_Y + IMG_H + 0.10, IMG_W, 0.26, caption, 10, False, MUTED, align=PP_ALIGN.CENTER)
 
 footer(s3, 3)
 
