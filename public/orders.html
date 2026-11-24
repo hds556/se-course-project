@@ -32,7 +32,7 @@
   </section>
 </main>
 
-<footer>拾物小店 · 线下交易，安心挑选</footer>
+<footer>拾物小店 · 在线下单，安心挑选</footer>
 
 <script>
 'use strict';
@@ -79,6 +79,8 @@ function row(order) {
 
   // 支付 / 物流摘要：只展示实际存在的字段（未支付不显示渠道，未发货不显示单号）
   const facts = [];
+  facts.push(`收货地址：${esc(order.addressSnapshot || '历史订单未记录地址')}`);
+  if(order.refund)facts.push(`模拟退款 ${money(order.refund.amountCents)} 已退回${esc(order.refund.channelLabel)}`);
   if (order.payChannelLabel) facts.push(`支付渠道 ${esc(order.payChannelLabel)}`);
   if (order.trackingNo) {
     facts.push(`物流单号 ${esc(order.trackingNo)}${order.shipCompanyLabel ? `（${esc(order.shipCompanyLabel)}）` : ''}`);
@@ -169,7 +171,7 @@ document.querySelector('#content').addEventListener('click', async event => {
     /* statusLabel 已经是「已取消」，这里不要再加「已」字；已付款段取消会原路退款 */
     const message = result.refunded
       ? `订单 ${result.orderId} 状态：${result.statusLabel}，${money(result.refundCents)} 已原路退回${result.refundChannelLabel}，商品库存已回补`
-      : `订单 ${result.orderId} 状态：${result.statusLabel}，商品库存已回补`;
+      : `订单 ${result.orderId} 状态：${result.statusLabel}，未付款无需退款，商品库存已回补`;
     await load(true);
     setNotice('#notice', message, 'success');
   } catch (error) {

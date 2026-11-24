@@ -40,7 +40,13 @@
   </section>
 </main>
 
-<footer>拾物小店 · 线下交易，安心挑选</footer>
+<dialog id="checkout-dialog" aria-labelledby="checkout-title"><h2 id="checkout-title">确认订单与收货地址</h2>
+<p id="checkout-items"></p><p id="checkout-amount" class="money"></p>
+<label>收货地址（下单后不可修改）<select id="checkout-address"></select></label>
+<details><summary>添加另一个收货地址</summary><form id="checkout-address-form" class="stack"><label>完整收货地址<input name="addressText" maxlength="200" required placeholder="收件人、电话、省市区和详细地址"></label><button type="submit" class="secondary">添加并选择</button></form></details>
+<p id="checkout-error" class="error" role="alert"></p><p>提交成功即占用库存，请在24小时内完成支付。支付为模拟流程。</p>
+<div class="actions"><button id="confirm-order" type="button">确认提交订单</button><button id="close-checkout" type="button" class="secondary">返回购物车</button></div></dialog>
+<footer>拾物小店 · 在线下单，安心挑选</footer>
 
 <script>
 'use strict';
@@ -187,40 +193,52 @@ async function changeQuantity(id, quantity, input) {
   }
 }
 
-/* 提交订单：把勾选的购物车项 id 一次性交给后端 */
-document.querySelector('#submit-order').onclick = async () => {
-  if (busy) return;
-  const ids = cartItems.filter(item => selected.has(item.id) && item.available).map(item => item.id);
-  if (!ids.length) return;
-  busy = true;
-  updateSummary();
-  itemErrors.clear();
-  document.querySelectorAll('[data-error-for]').forEach(node => { node.textContent = ''; });
-  try {
-    const order = await postJson('/api/orders', { cartItemIds: ids });
-    const rejected = order.rejectedItems || {};
-    if (Object.keys(rejected).length) {
-      /* 部分商品缺货：其余商品已成功下单，缺货项保留在购物车并标红 */
-      await load();
-      markErrors(rejected);
-      setNotice('#notice', `订单 ${order.orderNo} 已生成，${order.message}`, 'warn');
-    } else {
-      setNotice('#notice', `下单成功：订单号 ${order.orderNo}，合计 ${money(order.totalCents)}`, 'success');
-      await load();
-    }
-    selected.clear();
-    updateSummary();
-    setTimeout(() => { location.href = '/orders.html'; }, 900);
-  } catch (error) {
-    if (error.status === 401) { toLogin(); return; }
-    /* 全部勾选项都无法下单：不生成订单，刷新列表后逐条标红 */
-    await load();
-    markErrors(error.itemErrors);
-    setNotice('#notice', error.message, 'error');
-  } finally {
-    busy = false;
-    updateSummary();
-  }
+let checkoutIds=[],checkoutAddresses=[];
+function paintAddresses(chosen){
+ const select=document.querySelector('#checkout-address');
+ select.innerHTML=checkoutAddresses.length?checkoutAddresses.map(a=>`<option value="${a.id}">${esc(a.addressText)}${a.isDefault?'（默认）':''}</option>`).join(''):'<option value="">请先添加收货地址</option>';
+ if(chosen)select.value=String(chosen);else{const def=checkoutAddresses.find(a=>a.isDefault);if(def)select.value=String(def.id);}
+ document.querySelector('#confirm-order').disabled=!select.value;
+}
+async function handleShortages(errors,message){
+ for(const item of cartItems)if(Object.hasOwn(errors||{},String(item.productId)))selected.delete(item.id);
+ await load();markErrors(errors);updateSummary();
+ setNotice('#notice',message||'缺货项已取消勾选，本次未生成订单。请确认剩余商品后重新提交。','warn');
+}
+document.querySelector('#submit-order').onclick=async()=>{
+ if(busy)return;checkoutIds=cartItems.filter(i=>selected.has(i.id)&&i.available).map(i=>i.id);if(!checkoutIds.length)return;
+ busy=true;updateSummary();itemErrors.clear();
+ try{
+  checkoutAddresses=(await request('/api/checkout/addresses')).items;paintAddresses();
+  // 先逐项预检，不扣库存。无地址时先展示确认页，引导添加地址。
+  if(checkoutAddresses.length){
+   const preview=await postJson('/api/orders/preview',{cartItemIds:checkoutIds,addressId:Number(document.querySelector('#checkout-address').value)});
+   if(!preview.canSubmit){await handleShortages(preview.itemErrors);return;}
+   document.querySelector('#checkout-amount').textContent=money(preview.totalCents);
+  }else document.querySelector('#checkout-amount').textContent='请添加地址后提交，最终金额由系统计算';
+  document.querySelector('#checkout-items').textContent=cartItems.filter(i=>checkoutIds.includes(i.id)).map(i=>`${i.name} × ${i.quantity}`).join('；');
+  document.querySelector('#checkout-error').textContent='';document.querySelector('#checkout-dialog').showModal();
+ }catch(e){if(e.status===401){toLogin();return;}setNotice('#notice',e.message,'error');}
+ finally{busy=false;updateSummary();}
+};
+document.querySelector('#checkout-address-form').onsubmit=async event=>{
+ event.preventDefault();const button=event.submitter;button.disabled=true;
+ try{const added=await postJson('/api/checkout/addresses',{addressText:event.target.elements.addressText.value});checkoutAddresses.push(added);paintAddresses(added.id);event.target.reset();document.querySelector('#checkout-error').textContent='';}
+ catch(e){document.querySelector('#checkout-error').textContent=e.message;}finally{button.disabled=false;}
+};
+document.querySelector('#close-checkout').onclick=()=>{if(!busy)document.querySelector('#checkout-dialog').close();};
+document.querySelector('#confirm-order').onclick=async()=>{
+ if(busy)return;const addressId=Number(document.querySelector('#checkout-address').value);if(!addressId)return;
+ busy=true;document.querySelector('#confirm-order').disabled=true;
+ try{
+  const order=await postJson('/api/orders',{cartItemIds:checkoutIds,addressId});selected.clear();
+  document.querySelector('#checkout-dialog').close();await load();
+  setNotice('#notice',`订单 ${order.orderNo} 已生成，合计 ${money(order.totalCents)}。请在24小时内完成支付。`,'success');
+  setTimeout(()=>{location.href='/orders.html';},1200);
+ }catch(e){if(e.status===401){toLogin();return;}
+  document.querySelector('#checkout-error').textContent=e.message;
+  if(Object.keys(e.itemErrors||{}).length){document.querySelector('#checkout-dialog').close();await handleShortages(e.itemErrors,e.message+'；请确认剩余商品后重新提交。');}
+ }finally{busy=false;document.querySelector('#confirm-order').disabled=false;updateSummary();}
 };
 
 document.querySelector('#refresh').onclick = () => load();

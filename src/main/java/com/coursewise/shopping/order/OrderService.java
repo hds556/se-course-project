@@ -70,10 +70,12 @@ public class OrderService {
     private final CustomerService customers;
     private final ObjectMapper mapper;
     private final ShopWriteTransaction writes;
+    private final CheckoutAddressService checkoutAddresses;
+    private final com.coursewise.shopping.repository.RefundRepository refunds;
 
     public OrderService(OrderRepository orders, OrderItemRepository orderItems, CartItemRepository cart,
                         FavoriteRepository favorites, ProductRepository products, CustomerService customers,
-                        ObjectMapper mapper, ShopWriteTransaction writes) {
+                        ObjectMapper mapper, ShopWriteTransaction writes, CheckoutAddressService checkoutAddresses, com.coursewise.shopping.repository.RefundRepository refunds) {
         this.orders = orders;
         this.orderItems = orderItems;
         this.cart = cart;
@@ -82,6 +84,7 @@ public class OrderService {
         this.customers = customers;
         this.mapper = mapper;
         this.writes = writes;
+        this.checkoutAddresses=checkoutAddresses; this.refunds=refunds;
     }
 
     // ==================== 14201 收藏商品（FR-C-06）====================
@@ -247,100 +250,63 @@ public class OrderService {
 
     // ==================== 14203 提交订单（FR-C-08）====================
 
-    /**
-     * 提交订单：唯一入口是购物车，勾选一件或多件商品生成<b>一笔</b>订单。
-     *
-     * <p>处理流程（同一事务 + 写锁）：
-     * <ol>
-     *   <li>只接受本人购物车中、被勾选的条目；未勾选的不受影响（BR-25 只删选中项）；</li>
-     *   <li><b>逐商品</b>校验：已下架或库存不足的商品被剔除并记录原因，其余照常下单（BR-06）；</li>
-     *   <li>对被接受的商品逐条执行条件扣减（{@code WHERE stock >= qty}），任何一条扣减失败都不生成订单；
-     *       扣减在同一事务内完成，失败即整体回滚（BR-03 原子性）；</li>
-     *   <li>写入订单与明细快照（名称、单价），总金额由服务端 Σ(单价 × 数量) 计算（BR-24）；</li>
-     *   <li>删除本次成功下单的购物车项。</li>
-     * </ol>
-     *
-     * <p>若<b>全部</b>勾选项都不可下单，则不生成订单，返回 409 并带逐商品缺货明细。
-     */
-    public ObjectNode submit(String session, List<Long> cartItemIds) {
-        return write(() -> {
-            CustomerEntity customer = customers.requireCustomer(session);
-            List<Long> ids = cartItemIds == null ? List.of()
-                    : new ArrayList<>(new LinkedHashSet<>(cartItemIds.stream().filter(java.util.Objects::nonNull).toList()));
-            if (ids.isEmpty()) throw bad("cartItemIds", "请先勾选要下单的商品");
-
-            List<CartItemEntity> mine = cart.findByCustomerIdAndIdIn(customer.getId(), ids);
-            if (mine.isEmpty()) throw bad("cartItemIds", "勾选的商品已不在购物车中，请刷新后重试");
-
-            Map<String, String> shortages = new LinkedHashMap<>();
-            List<CartItemEntity> accepted = new ArrayList<>();
-            long totalCents = 0;
-
-            for (CartItemEntity item : mine) {
-                ProductEntity product = products.findById(item.getProductId()).orElse(null);
-                if (product == null) {
-                    shortages.put(String.valueOf(item.getProductId()), "商品不存在或已删除，不能下单");
-                    continue;
-                }
-                if (!isPurchasable(product)) {
-                    shortages.put(String.valueOf(product.getId()), "商品已下架，不能下单");
-                    // 已下架商品从购物车中移除勾选资格，但不自动删除条目（BR-49）
-                    continue;
-                }
-                if (product.getStock() == null || product.getStock() < item.getQuantity()) {
-                    shortages.put(String.valueOf(product.getId()),
-                            "库存不足（可售 " + (product.getStock() == null ? 0 : product.getStock())
-                                    + " 件，需要 " + item.getQuantity() + " 件），不能下单");
-                    continue;
-                }
-                // 条件扣减：受影响行数 0 说明并发下库存已被抢走，同样按缺货处理
-                if (products.deductStock(product.getId(), item.getQuantity(), Instant.now().toString()) == 0) {
-                    shortages.put(String.valueOf(product.getId()), "库存不足，不能下单");
-                    continue;
-                }
-                accepted.add(item);
-                totalCents += product.getPriceCents() * item.getQuantity();
-            }
-
-            if (accepted.isEmpty()) {
-                throw OrderException.items(HttpStatus.CONFLICT,
-                        "所选商品均无法下单：" + String.join("；", shortages.values()), shortages);
-            }
-
-            OrderEntity order = new OrderEntity();
-            order.setCustomerId(customer.getId());
-            order.setTotalCents(totalCents);
-            order.setStatus(OrderStatus.placed);
-            order.setCreatedAt(now());
-            orders.saveAndFlush(order);
-
-            ArrayNode lines = mapper.createArrayNode();
-            for (CartItemEntity item : accepted) {
-                ProductEntity product = products.findById(item.getProductId()).orElseThrow();
-                OrderItemEntity line = new OrderItemEntity();
-                line.setOrderId(order.getId());
-                line.setProductId(product.getId());
-                // 快照：商品名称与单价在下单时固化，之后卖家改价不再影响本单（BR-20 / AC-08）
-                line.setProductName(product.getName());
-                line.setUnitPriceCents(product.getPriceCents());
-                line.setQuantity(item.getQuantity());
-                orderItems.saveAndFlush(line);
-                lines.add(itemView(line));
-            }
-
-            // 仅删除成功下单的购物车项，未勾选与缺货项保留（BR-25）
-            cart.deleteByCustomerIdAndIdIn(customer.getId(), accepted.stream().map(CartItemEntity::getId).toList());
-
-            ObjectNode result = orderView(order, lines);
-            ObjectNode rejected = mapper.createObjectNode();
-            shortages.forEach(rejected::put);
-            result.set("rejectedItems", rejected);
-            result.put("message", shortages.isEmpty()
-                    ? "下单成功"
-                    : "部分商品缺货未能下单：" + String.join("；", shortages.values()));
-            return result;
-        });
+    /** 先逐项检查供页面提示，明确选中的集合才是本次订单边界。 */
+    private record Selection(List<CartItemEntity> items, Map<Long, ProductEntity> products,
+                             Map<String,String> errors, long totalCents) {}
+    private Selection selection(CustomerEntity customer, List<Long> cartItemIds) {
+        if (cartItemIds == null || cartItemIds.isEmpty() || cartItemIds.size()>200
+                || cartItemIds.stream().anyMatch(id -> id==null || id<=0))
+            throw bad("cartItemIds", "请选择1至200个有效购物车项");
+        List<Long> ids=new ArrayList<>(new LinkedHashSet<>(cartItemIds));
+        if(ids.size()!=cartItemIds.size())throw bad("cartItemIds","不能重复提交购物车项");
+        var mine=cart.findByCustomerIdAndIdIn(customer.getId(),ids);
+        if(mine.size()!=ids.size())throw new OrderException(HttpStatus.NOT_FOUND,"cartItemIds","购物车项不存在或无权使用，请刷新重试");
+        Map<Long,ProductEntity> selectedProducts=new LinkedHashMap<>();
+        Map<String,String> errors=new LinkedHashMap<>();long total=0;
+        for(var item:mine){
+            var product=products.findById(item.getProductId()).orElse(null);
+            if(product==null || !isPurchasable(product)) {errors.put(String.valueOf(item.getProductId()),"商品已下架或不存在，不能下单");continue;}
+            if(item.getQuantity()<1 || product.getStock()<item.getQuantity()) {errors.put(String.valueOf(item.getProductId()),"库存不足（可售"+product.getStock()+"件，需要"+item.getQuantity()+"件）");continue;}
+            selectedProducts.put(product.getId(),product);
+            try{total=Math.addExact(total,Math.multiplyExact(product.getPriceCents(),(long)item.getQuantity()));}
+            catch(ArithmeticException e){throw bad("cartItemIds","订单金额超出系统范围");}
+        }
+        return new Selection(mine,selectedProducts,errors,total);
     }
+
+    /** 预检不扣库存、不生成订单；缺货项由客户取消勾选后明确再次提交。 */
+    public ObjectNode preview(String session,List<Long> ids,Long addressId){return write(()->{
+        var customer=customers.requireCustomer(session);
+        String address=checkoutAddresses.snapshot(customer,addressId);
+        var selection=selection(customer,ids);
+        var result=mapper.createObjectNode().put("canSubmit",selection.errors().isEmpty()).put("addressSnapshot",address).put("totalCents",selection.totalCents());
+        var errors=mapper.createObjectNode();selection.errors().forEach(errors::put);result.set("itemErrors",errors);
+        var ready=mapper.createArrayNode();selection.items().stream().filter(i->!selection.errors().containsKey(String.valueOf(i.getProductId()))).forEach(i->ready.add(i.getId()));
+        result.set("readyCartItemIds",ready);return result;
+    });}
+
+    public ObjectNode submit(String session,List<Long> ids){return submit(session,ids,null);}
+    /** 校验全部明确选中项，再条件扣减；任一失败均回滚，禁止自动生成残缺订单。 */
+    public ObjectNode submit(String session,List<Long> ids,Long addressId){return write(()->{
+        var customer=customers.requireCustomer(session);
+        String address=checkoutAddresses.snapshot(customer,addressId);
+        var selection=selection(customer,ids);
+        if(!selection.errors().isEmpty())throw OrderException.items(HttpStatus.CONFLICT,"部分商品不可下单，请取消缺货项勾选后重新提交；本次未生成订单",selection.errors());
+        for(var item:selection.items()){
+            if(products.deductStock(item.getProductId(),item.getQuantity(),now())!=1)
+                throw OrderException.items(HttpStatus.CONFLICT,"库存已变化，本次订单未生成，已扣库存全部回滚",Map.of(String.valueOf(item.getProductId()),"库存不足或商品已下架"));
+        }
+        var order=new OrderEntity();order.setCustomerId(customer.getId());order.setAddressSnapshot(address);
+        order.setTotalCents(selection.totalCents());order.setStatus(OrderStatus.placed);order.setCreatedAt(now());orders.saveAndFlush(order);
+        var lines=mapper.createArrayNode();
+        for(var item:selection.items()){
+            var product=selection.products().get(item.getProductId());var line=new OrderItemEntity();
+            line.setOrderId(order.getId());line.setProductId(product.getId());line.setProductName(product.getName());
+            line.setUnitPriceCents(product.getPriceCents());line.setQuantity(item.getQuantity());orderItems.saveAndFlush(line);lines.add(itemView(line));
+        }
+        cart.deleteByCustomerIdAndIdIn(customer.getId(),selection.items().stream().map(CartItemEntity::getId).toList());
+        return orderView(order,lines).put("message","下单成功，请在24小时内完成支付");
+    });}
 
     /** 商品详情页的「加入购物车」「收藏」状态一次性返回，减少前端往返。 */
     @Transactional(readOnly = true)
@@ -386,11 +352,18 @@ public class OrderService {
             PayChannel channel = refunded ? order.getPayChannel() : null;
             long refundCents = refunded ? order.getTotalCents() : 0;
 
+            if(refunded && channel==null)throw new OrderException(HttpStatus.CONFLICT,"payChannel","已支付订单缺少原支付渠道，不能取消，请联系处理");
+            if(orders.cancelIfStatus(orderId,order.getStatus())!=1)
+                throw new OrderException(HttpStatus.CONFLICT,"orderId","订单状态已变化，请刷新后重试");
             for (OrderItemEntity line : orderItems.findByOrderIdOrderByIdAsc(orderId)) {
-                products.restoreStock(line.getProductId(), line.getQuantity());
+                if(products.restoreStock(line.getProductId(),line.getQuantity())!=1)
+                    throw new OrderException(HttpStatus.CONFLICT,"orderId","商品库存回补失败，本次取消已回滚");
+            }
+            if(refunded){
+                var receipt=new com.coursewise.shopping.domain.RefundEntity();receipt.setOrderId(orderId);
+                receipt.setPayChannel(channel);receipt.setAmountCents(refundCents);receipt.setCreatedAt(now());refunds.saveAndFlush(receipt);
             }
             order.setStatus(OrderStatus.cancelled);
-            orders.saveAndFlush(order);
 
             ObjectNode result = mapper.createObjectNode()
                     .put("orderId", orderId)
@@ -719,6 +692,7 @@ public class OrderService {
         node.put("createdAt", order.getCreatedAt());
         node.put("cancellable", order.getStatus().isCancellableByCustomer());
         node.set("items", lines);
+        putNullable(node,"addressSnapshot",order.getAddressSnapshot());
 
         // ---- 以下为挑战需求C 新增的订单动作与支付 / 物流摘要（FR-C-09 / FR-C-11 / FR-C-12 / FR-C-16）----
         boolean expired = order.getStatus().isAwaitingPayment() && isExpired(order);
@@ -730,22 +704,29 @@ public class OrderService {
         node.put("deadline", deadlineOf(order.getCreatedAt()));
         node.put("remainingSeconds", remainingSeconds(order));
 
-        if (order.getPayChannel() != null) {
+        boolean hasPayment=order.isPaymentCaptured() || order.getStatus().isPaidStage() || (order.getStatus()==OrderStatus.cancelled && refunds.findByOrderId(order.getId()).isPresent());
+        if (hasPayment && order.getPayChannel() != null) {
             node.put("payChannel", order.getPayChannel().code());
             node.put("payChannelLabel", order.getPayChannel().label());
         } else {
             node.putNull("payChannel");
             node.putNull("payChannelLabel");
         }
-        putNullable(node, "trackingNo", order.getTrackingNo());
-        putNullable(node, "shippedAt", order.getShippedAt());
-        if (order.getShipCompany() == null) {
+        boolean hasLogistics=node.path("logisticsAvailable").asBoolean();
+        putNullable(node, "trackingNo", hasLogistics ? order.getTrackingNo() : null);
+        putNullable(node, "shippedAt", hasLogistics ? order.getShippedAt() : null);
+        if (!hasLogistics || order.getShipCompany() == null) {
             node.putNull("shipCompany");
             node.putNull("shipCompanyLabel");
         } else {
             node.put("shipCompany", order.getShipCompany().code());
             node.put("shipCompanyLabel", order.getShipCompany().label());
         }
+        var receipt=refunds.findByOrderId(order.getId());
+        if(receipt.isPresent()){
+            var r=receipt.get();node.set("refund",mapper.createObjectNode().put("id",r.getId()).put("amountCents",r.getAmountCents())
+                    .put("channel",r.getPayChannel().code()).put("channelLabel",r.getPayChannel().label()).put("status",r.getStatus()).put("simulated",true));
+        }else node.putNull("refund");
         return node;
     }
 
@@ -862,24 +843,7 @@ public class OrderService {
         }
     }
 
-    /**
-     * 订单收货地址快照。
-     *
-     * <p>订单表目前不含地址字段：收货地址簿由开发 C 在本次迭代实现，其落地后会以
-     * {@code addressSnapshot} 写入订单。为不改动对方的实体与表结构，这里用反射按字段名
-     * 读取，字段存在即使用、不存在则回退为空——物流模拟轨迹因此不会因为地址簿的
-     * 上线下线而报错，也不占用对方的数据所有权。
-     */
-    private String addressOf(OrderEntity order) {
-        try {
-            var field = order.getClass().getDeclaredField("addressSnapshot");
-            field.setAccessible(true);
-            Object value = field.get(order);
-            return value instanceof String text ? text : null;
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            return null;
-        }
-    }
+    private String addressOf(OrderEntity order) {return order.getAddressSnapshot();}
 
     private void putNullable(ObjectNode node, String field, String value) {
         if (value == null) node.putNull(field);

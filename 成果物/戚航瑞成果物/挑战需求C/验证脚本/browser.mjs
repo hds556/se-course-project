@@ -1,0 +1,27 @@
+import fs from 'node:fs/promises';import {chromium} from 'playwright';
+const username='qhr_c_'+Date.now();
+const out='成果物/戚航瑞成果物/挑战需求C',base='http://127.0.0.1:3220';await fs.mkdir(out+'/截图',{recursive:true});
+const browser=await chromium.launch({headless:true,channel:'msedge'});const sc=await browser.newContext(),seller=sc.request;
+async function checked(r){if(!r.ok())throw Error(`${r.status()} ${await r.text()}`);return r.json();}
+await checked(await seller.post(base+'/api/auth/login',{data:{username:'admin',password:'admin1234'}}));
+const parent=await checked(await seller.post(base+'/api/admin/categories',{data:{name:'校园生活'}}));const leaf=await checked(await seller.post(base+'/api/admin/categories',{data:{name:'学习用品',parentId:parent.id}}));
+async function prod(name,price,stock){return checked(await seller.post(base+'/api/products',{multipart:{name,price:String(price),stock:String(stock),categoryId:String(leaf.id)}}));}
+const a=await prod('日常书写钢笔','12.50',8),b=await prod('缺货练习本','8.00',1),c=await prod('陶瓷马克杯','20.00',5);
+const ctx=await browser.newContext({viewport:{width:1440,height:1080}}),page=await ctx.newPage(),req=ctx.request;const errors=[],dialogs=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>{dialogs.push(d.type());d.dismiss();});
+await checked(await req.post(base+'/api/customer/register',{data:{username,password:'password1',phone:'13800000000',defaultPlace:'戚航瑞 13800000000 浙江省杭州市学校收发室'}}));await checked(await req.post(base+'/api/customer/login',{data:{username,password:'password1'}}));
+async function add(p,quantity){return checked(await req.post(base+'/api/cart',{data:{productId:p.id,quantity}}));}
+const ai=await add(a,2),bi=await add(b,3),ci=await add(c,1);
+await page.goto(base+'/cart.html');await page.locator('[data-pick]').first().waitFor();for(const id of [ai.id,bi.id,ci.id])await page.locator(`[data-pick="${id}"]`).check();await page.locator('#submit-order').click();await page.locator('#notice').filter({hasText:'未生成订单'}).waitFor();
+if((await checked(await req.get(base+'/api/orders'))).total!==0)throw Error('缺货时生成残缺订单');await page.screenshot({path:out+'/截图/01_缺货逐项提示且不自动生成订单.png',fullPage:true});
+await page.locator('#submit-order').click();await page.locator('#checkout-dialog').waitFor({state:'visible'});if(!await page.locator('#checkout-address option:checked').textContent().then(t=>t.includes('默认')))throw Error('默认地址未自动选择');await page.locator('#checkout-dialog').screenshot({path:out+'/截图/02_确认订单自动带入默认地址.png'});
+await page.locator('#checkout-dialog details summary').click();await page.locator('#checkout-address-form input').fill('戚航瑞 13800000000 浙江省宁波市备用收货地址');await page.locator('#checkout-address-form button').click();await page.waitForFunction(()=>document.querySelector('#checkout-address').selectedOptions[0].textContent.includes('宁波'));await page.locator('#checkout-dialog').screenshot({path:out+'/截图/03_切换地址后确认两件商品.png'});
+const [created]=await Promise.all([page.waitForResponse(r=>r.url()===base+'/api/orders'&&r.request().method()==='POST'),page.locator('#confirm-order').click()]);const first=await created.json();if(first.items.length!==2||first.totalCents!==4500)throw Error('多件整单金额错误');
+await page.waitForURL('**/orders.html');await page.locator(`[data-order="${first.id}"] summary`).click();await page.locator('.order-facts').filter({hasText:'宁波'}).waitFor();await page.screenshot({path:out+'/截图/04_新订单立即展示地址与商品快照.png',fullPage:true});
+const pending=await checked(await req.post(`${base}/api/orders/${first.id}/pay`,{data:{payChannel:'alipay'}}));await page.reload();const pv=await checked(await req.get(`${base}/api/orders/${first.id}`));if(pv.payChannel!==null||pv.trackingNo!==null)throw Error('未支付泄露支付物流摘要');
+await checked(await req.post(`${base}/api/orders/${first.id}/pay`,{data:{payChannel:'alipay',success:true}}));await page.reload();await page.locator(`[data-order="${first.id}"] summary`).click();await page.locator('.order-facts').filter({hasText:'支付宝'}).waitFor();await page.screenshot({path:out+'/截图/05_已支付订单显示支付渠道.png',fullPage:true});
+await page.locator(`[data-order="${first.id}"] [data-cancel]`).click();await page.locator('#notice').filter({hasText:'已原路退回'}).waitFor();await page.locator(`[data-order="${first.id}"] summary`).click();await page.locator('.order-facts').filter({hasText:'模拟退款'}).waitFor();await page.screenshot({path:out+'/截图/06_已支付取消原渠道退款并保留订单.png',fullPage:true});
+const unpaid=await checked(await req.post(base+'/api/orders',{data:{cartItemIds:[(await add(a,1)).id]}}));await page.reload();await page.locator(`[data-order="${unpaid.id}"] [data-cancel]`).click();await page.locator('#notice').filter({hasText:'未付款无需退款'}).waitFor();await page.screenshot({path:out+'/截图/07_未支付取消无退款且无需确认弹窗.png',fullPage:true});
+const shipped=await checked(await req.post(base+'/api/orders',{data:{cartItemIds:[(await add(a,1)).id]}}));await checked(await req.post(`${base}/api/orders/${shipped.id}/pay`,{data:{payChannel:'wechat',success:true}}));
+await fs.writeFile('target/projectc-work/browser-fixtures.json',JSON.stringify({first:first.id,unpaid:unpaid.id,shipped:shipped.id,customer:username,productId:a.id}));
+if(errors.length||dialogs.length)throw Error('页面异常或取消弹窗：'+JSON.stringify({errors,dialogs}));
+await fs.writeFile(out+'/浏览器验证.json',JSON.stringify({date:'2026-11-24',passed:['缺货逐项提示不生成订单','默认地址自动带入','备用地址切换','两商品一订单总额45元','订单立即出现与地址快照','待支付不显示支付渠道和物流','已支付显示渠道','支付取消持久化模拟原路退款','未支付取消无退款','取消无原因无二次确认'],pageErrors:errors,dialogs},null,2));await browser.close();

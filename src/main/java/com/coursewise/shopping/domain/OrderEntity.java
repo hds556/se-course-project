@@ -70,6 +70,17 @@ public class OrderEntity {
     @Column(name = "tracking_no", length = 64)
     private String trackingNo;
 
+    /** 支付成功凭据：区分待支付暂存渠道与真正支付，取消后仍保留。旧库可为空。 */
+    @Column(name="payment_captured")
+    private Boolean paymentCaptured = false;
+    public boolean isPaymentCaptured(){return Boolean.TRUE.equals(paymentCaptured);}
+
+    /** 旧订单允许为空；新订单由下单服务强制写入非空地址快照。 */
+    @Column(name="address_snapshot",length=200)
+    private String addressSnapshot;
+    public String getAddressSnapshot(){return addressSnapshot;}
+    public void setAddressSnapshot(String value){addressSnapshot=value;}
+
     public Long getId() {
         return id;
     }

@@ -24,6 +24,10 @@ import java.util.Optional;
  */
 public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
+    @Modifying(clearAutomatically=true,flushAutomatically=true)
+    @Query("update OrderEntity o set o.status = com.coursewise.shopping.domain.OrderStatus.cancelled where o.id=:id and o.status=:expected")
+    int cancelIfStatus(@Param("id") Long id,@Param("expected") OrderStatus expected);
+
     /**
      * 本人订单分页，按下单时间倒序（FR-C-16：只显示本人订单、按下单时间倒序并分页）。
      * 同一时间戳再用 id 倒序兜底，保证排序稳定。
@@ -48,7 +52,7 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update OrderEntity o set o.status = com.coursewise.shopping.domain.OrderStatus.paid, "
-            + "o.payChannel = :channel where o.id = :id and o.status in "
+            + "o.payChannel = :channel, o.paymentCaptured = true where o.id = :id and o.status in "
             + "(com.coursewise.shopping.domain.OrderStatus.placed, "
             + "com.coursewise.shopping.domain.OrderStatus.pendingPayment)")
     int markPaid(@Param("id") Long id, @Param("channel") PayChannel channel);

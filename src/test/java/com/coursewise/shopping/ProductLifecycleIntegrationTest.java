@@ -381,7 +381,7 @@ class ProductLifecycleIntegrationTest {
 
     private Cookie registerBuyer() throws Exception {
         mvc.perform(post("/api/customer/register").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"lifecycle_buyer\",\"password\":\"testpass123\",\"phone\":\"13800000000\"}"))
+                        .content("{\"username\":\"lifecycle_buyer\",\"password\":\"testpass123\",\"phone\":\"13800000000\",\"defaultPlace\":\"杭州市测试收货地址\"}"))
                 .andExpect(status().isCreated());
         Cookie buyer = mvc.perform(post("/api/customer/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"lifecycle_buyer\",\"password\":\"testpass123\"}"))

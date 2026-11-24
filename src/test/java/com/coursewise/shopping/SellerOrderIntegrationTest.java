@@ -388,7 +388,7 @@ class SellerOrderIntegrationTest {
 
     private Cookie register(String username) throws Exception {
         mvc.perform(post("/api/customer/register").contentType("application/json")
-                        .content("{\"username\":\"" + username + "\",\"password\":\"password1\",\"phone\":\"13800000000\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"password1\",\"phone\":\"13800000000\",\"defaultPlace\":\"杭州市测试收货地址\"}"))
                 .andExpect(status().isCreated());
         var response = mvc.perform(post("/api/customer/login").contentType("application/json")
                         .content("{\"username\":\"" + username + "\",\"password\":\"password1\"}"))

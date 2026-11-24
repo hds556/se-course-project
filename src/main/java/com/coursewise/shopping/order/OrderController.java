@@ -103,14 +103,26 @@ public class OrderController {
     // ---------- 14203 提交订单（API-08）----------
 
     /** 从购物车勾选商品提交，生成 1 笔订单；返回订单与逐商品缺货结果。 */
-    @PostMapping("/api/orders")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ObjectNode submit(@CookieValue(name = "customer_session", required = false) String session,
-                             @RequestBody(required = false) Map<String, Object> body) {
-        return orderService.submit(session, cartItemIds(body == null ? null : body.get("cartItemIds")));
+    @PostMapping("/api/orders") @ResponseStatus(HttpStatus.CREATED)
+    public ObjectNode submit(@CookieValue(name="customer_session",required=false) String session,
+                              @RequestBody(required=false) Map<String,Object> body){
+        return orderService.submit(session,cartIds(body),addressId(body));
     }
-
-    // ---------- 14205 我的订单（API-09）----------
+    @PostMapping("/api/orders/preview")
+    public ObjectNode preview(@CookieValue(name="customer_session",required=false) String session,
+                              @RequestBody(required=false) Map<String,Object> body){
+        return orderService.preview(session,cartIds(body),addressId(body));
+    }
+    private Long addressId(Map<String,Object> body){
+        if(body==null||body.get("addressId")==null)return null;
+        Long id=whole(body.get("addressId"));
+        if(id==null||id<=0)throw new OrderException(HttpStatus.BAD_REQUEST,"addressId","收货地址编号无效");
+        return id;
+    }
+    private List<Long> cartIds(Map<String,Object> body){
+        if(body==null||!(body.get("cartItemIds") instanceof List<?> raw))return List.of();
+        return raw.stream().map(this::whole).toList();
+    }
 
     @GetMapping("/api/orders")
     public ObjectNode myOrders(@CookieValue(name = "customer_session", required = false) String session,

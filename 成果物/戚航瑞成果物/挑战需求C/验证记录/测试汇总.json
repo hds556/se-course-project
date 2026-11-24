@@ -1,0 +1,38 @@
+[
+  {
+    "class": "com.coursewise.shopping.CatalogIntegrationTest",
+    "tests": 26,
+    "failures": 0,
+    "errors": 0
+  },
+  {
+    "class": "com.coursewise.shopping.OrderCIntegrationTest",
+    "tests": 18,
+    "failures": 0,
+    "errors": 0
+  },
+  {
+    "class": "com.coursewise.shopping.OrderIntegrationTest",
+    "tests": 20,
+    "failures": 0,
+    "errors": 0
+  },
+  {
+    "class": "com.coursewise.shopping.PaymentShippingIntegrationTest",
+    "tests": 22,
+    "failures": 0,
+    "errors": 0
+  },
+  {
+    "class": "com.coursewise.shopping.ProductLifecycleIntegrationTest",
+    "tests": 12,
+    "failures": 0,
+    "errors": 0
+  },
+  {
+    "class": "com.coursewise.shopping.SellerOrderIntegrationTest",
+    "tests": 14,
+    "failures": 0,
+    "errors": 0
+  }
+]

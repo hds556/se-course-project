@@ -211,12 +211,16 @@ class OrderIntegrationTest {
         long enoughItem = addCart(alice, enough, 2);
         long shortageItem = addCart(alice, shortage, 3);
 
-        var body = read(mvc.perform(post("/api/orders").cookie(alice).contentType("application/json")
-                .content("{\"cartItemIds\":[" + enoughItem + "," + shortageItem + "]}")).andReturn());
-        assertEquals(1, orders.count());
-        assertEquals(1, body.path("items").size());
-        assertTrue(body.path("rejectedItems").has(String.valueOf(shortage)), "缺货商品应逐项提示");
-
+        var body = read(mvc.perform(post("/api/orders/preview").cookie(alice).contentType("application/json")
+                .content("{\"cartItemIds\":[" + enoughItem + "," + shortageItem + "]}")).andExpect(status().isOk()).andReturn());
+        assertEquals(0,orders.count());assertFalse(body.path("canSubmit").asBoolean());
+        assertTrue(body.path("itemErrors").has(String.valueOf(shortage)));
+        mvc.perform(post("/api/orders").cookie(alice).contentType("application/json")
+                .content("{\"cartItemIds\":[" + enoughItem + "," + shortageItem + "]}")).andExpect(status().isConflict());
+        assertEquals(5,products.findById(enough).orElseThrow().getStock());assertEquals(0,orders.count());
+        var accepted=read(mvc.perform(post("/api/orders").cookie(alice).contentType("application/json")
+                .content("{\"cartItemIds\":["+enoughItem+"]}")).andExpect(status().isCreated()).andReturn());
+        assertEquals(1,accepted.path("items").size());
         assertEquals(3, products.findById(enough).orElseThrow().getStock());
         assertEquals(1, products.findById(shortage).orElseThrow().getStock(), "缺货商品库存不变");
         // 只删除成功下单的购物车项，缺货项仍保留
@@ -420,7 +424,7 @@ class OrderIntegrationTest {
 
     private Cookie register(String username) throws Exception {
         mvc.perform(post("/api/customer/register").contentType("application/json")
-                        .content("{\"username\":\"" + username + "\",\"password\":\"password1\",\"phone\":\"13800000000\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"password1\",\"phone\":\"13800000000\",\"defaultPlace\":\"杭州市测试收货地址\"}"))
                 .andExpect(status().isCreated());
         var response = mvc.perform(post("/api/customer/login").contentType("application/json")
                         .content("{\"username\":\"" + username + "\",\"password\":\"password1\"}"))
