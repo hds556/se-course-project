@@ -1,8 +1,0 @@
-BEFORE a73332f9669469cde781ef490711372e4edd222a | http://127.0.0.1:3196 | real Spring Boot and isolated SQLite
-PNG 01-旧版补货与上架分开.png
-PASS 补货后库存5仍为depleted，买家详情404；原生提示：补货后库存数量（正整数）。补货后商品仍为已下架，需再点「重新上架」。
-PNG 02-旧版交易队列与手动下架.png
-PASS 旧版已从真实队列下架并作废意向；原生提示：手动下架：请对未终结意向选择处置方式（输入 void 作废 / requeue 重新排队）
-PNG 03-旧版历史仅记录交易结果.png
-PASS 旧版历史既不包含DEPLETED商品A，也不包含WITHDRAWN商品B；只显示有交易结果的商品C。
-END 不改页面DOM，仅运行真实浏览器与实际旧版HTTP服务。

@@ -19,7 +19,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 买家端 REST API：收藏、购物车、订单（SRS §7.2 API-06 ~ API-10）。
+ * 买家端 REST API：收藏、购物车、订单（SRS §7.2 API-06 ~ API-10），
+ * 以及挑战需求C 的支付（API-19）、确认收货（API-20）、查询物流（API-21）。
  *
  * <p>全部路由走 {@code customer_session} 会话，未登录由
  * {@code CustomerService.requireCustomer} 抛 401，前端据此跳登录页（BR-40）。
@@ -133,6 +134,55 @@ public class OrderController {
         return orderService.cancel(session, id);
     }
 
+    // ---------- 14257 支付订单（API-19）----------
+
+    /** 该订单的支付选项：可付状态、金额、截止时间、四种渠道（支付页渲染用）。 */
+    @GetMapping("/api/orders/{id}/payment")
+    public ObjectNode paymentOptions(@CookieValue(name = "customer_session", required = false) String session,
+                                     @PathVariable long id) {
+        return orderService.paymentOptions(session, id);
+    }
+
+    /**
+     * 发起 / 完成支付（模拟）。
+     *
+     * <p>请求体 {@code {"payChannel":"alipay","success":true}}：
+     * <ul>
+     *   <li>不传 {@code success}：只把订单置为「待支付」并记录所选渠道，返回模拟支付页地址；</li>
+     *   <li>{@code success=true}：模拟支付成功，订单转「已支付」；</li>
+     *   <li>{@code success=false}：模拟支付失败，订单停留「待支付」，可重试。</li>
+     * </ul>
+     * 重复提交按幂等处理，不产生第二笔扣款（BR-55 / AC-14）。
+     */
+    @PostMapping("/api/orders/{id}/pay")
+    public ObjectNode pay(@CookieValue(name = "customer_session", required = false) String session,
+                          @PathVariable long id,
+                          @RequestBody(required = false) Map<String, Object> body) {
+        String channel = text(body == null ? null : body.get("payChannel"));
+        Boolean success = bool(body == null ? null : body.get("success"));
+        return success == null
+                ? orderService.startPayment(session, id, channel, null)
+                : orderService.pay(session, id, channel, success);
+    }
+
+    // ---------- 14258 确认收货（API-20）----------
+
+    /** 客户确认收货：「开始发货」→「交易完成」，终态不可逆，重复提交幂等。 */
+    @PostMapping("/api/orders/{id}/confirm")
+    public ObjectNode confirm(@CookieValue(name = "customer_session", required = false) String session,
+                              @PathVariable long id) {
+        return orderService.confirmReceipt(session, id);
+    }
+
+    // ---------- 14259 查询物流（API-21）----------
+
+    /** 物流详情：单号、公司、模拟跟踪信息（已发货 / 运输中 / 已签收）。 */
+    @GetMapping("/api/orders/{id}/logistics")
+    public ObjectNode logistics(@CookieValue(name = "customer_session", required = false) String session,
+                                @PathVariable long id) {
+        return orderService.logistics(session, id);
+    }
+
     // ---------- 参数解析 ----------
 
     /** 勾选的购物车项 id 列表；允许数字或数字字符串两种形态。 */
@@ -165,5 +215,21 @@ public class OrderController {
         Long parsed = whole(value);
         if (parsed == null || parsed > Integer.MAX_VALUE) return null;
         return parsed.intValue();
+    }
+
+    private String text(Object value) {
+        if (value == null) return null;
+        String text = value.toString().trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    /** 布尔参数：接受 JSON 布尔与 "true"/"false" 字符串；无法识别时返回 null（按「仅发起支付」处理）。 */
+    private Boolean bool(Object value) {
+        if (value instanceof Boolean flag) return flag;
+        if (value == null) return null;
+        String text = value.toString().trim();
+        if (text.equalsIgnoreCase("true")) return Boolean.TRUE;
+        if (text.equalsIgnoreCase("false")) return Boolean.FALSE;
+        return null;
     }
 }

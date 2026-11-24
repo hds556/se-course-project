@@ -50,4 +50,22 @@ public interface SellerOrderRepository extends JpaRepository<OrderEntity, Long> 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update OrderEntity o set o.status = :next where o.id = :id and o.status = :expected")
     int changeStatus(@Param("id") Long id, @Param("expected") OrderStatus expected, @Param("next") OrderStatus next);
+
+    /**
+     * 推进到「开始发货」时<b>同时</b>写入物流信息（FR-C-12 的数据来源 / BR-58 / IC-12）。
+     *
+     * <p>物流字段属于订单表（开发 A），因此这里提供的是「状态 + 物流」的原子写入：
+     * 状态推进成功与单号落库在一次 UPDATE 内完成，不会出现「已开始发货但没有物流单号」
+     * 这种让买家查不到物流的中间态。卖家侧的表单与校验仍归 14207 的实现方，本方法只是入口。
+     *
+     * @return 受影响行数，1 = 推进并写入成功，0 = 状态已被其他操作改动
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update OrderEntity o set o.status = :next, o.shippedAt = :shippedAt, "
+            + "o.shipCompany = :company, o.trackingNo = :trackingNo "
+            + "where o.id = :id and o.status = :expected")
+    int changeStatusToShipped(@Param("id") Long id, @Param("expected") OrderStatus expected,
+                              @Param("next") OrderStatus next, @Param("shippedAt") String shippedAt,
+                              @Param("company") com.coursewise.shopping.domain.ShipCompany company,
+                              @Param("trackingNo") String trackingNo);
 }

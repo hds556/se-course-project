@@ -57,11 +57,17 @@ public class SellerOrderService {
      * <p>刻意建成显式表而不是 {@code ordinal() + 1}：一旦将来枚举顺序调整或新增状态，
      * 隐式算术会悄悄改变业务规则，而这张表改不改、怎么改都一目了然。
      * 「交易完成」「已取消」不在表中，天然不可推进。
+     *
+     * <p><b>挑战需求C（14257 支付）兼容新增</b>：客户支付引入了「待支付」「已支付」两态。
+     * 卖家受理的是<b>已付款</b>的订单，因此「已支付 → 商家确认」是本次新增的一格；
+     * 「客户下单」保持原有推进路径不变（挑战需求B 的既有口径），
+     * 「待支付」是付款流程中的临时态，不参与卖家推进（推进即报「无下一步」）。
      */
     private static final Map<OrderStatus, OrderStatus> NEXT_STATUS = new EnumMap<>(OrderStatus.class);
 
     static {
         NEXT_STATUS.put(OrderStatus.placed, OrderStatus.confirmed);
+        NEXT_STATUS.put(OrderStatus.paid, OrderStatus.confirmed);
         NEXT_STATUS.put(OrderStatus.confirmed, OrderStatus.packed);
         NEXT_STATUS.put(OrderStatus.packed, OrderStatus.shipped);
         NEXT_STATUS.put(OrderStatus.shipped, OrderStatus.completed);
