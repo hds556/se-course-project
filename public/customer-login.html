@@ -1,0 +1,24 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>客户登录 · 拾物小店</title><link rel="stylesheet" href="/catalog.css"></head><body>
+<header><a class="brand" href="/">拾物小店 <small>CUSTOMER SIGN IN</small></a><a href="/register.html">没有账号，去注册 ↗</a></header>
+<main class="login-main"><section class="panel"><p class="eyebrow">客户登录</p><h1>欢迎回来</h1><p class="muted">使用用户名和密码登录（电话不作为登录凭证）。</p>
+<p id="registered" class="muted" hidden>注册成功，请登录。</p>
+<form id="login-form" class="stack">
+<label>用户名<input name="username" autocomplete="username" required></label>
+<label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+<button>登录</button>
+<p id="error" role="alert" class="error"></p>
+</form><p class="muted">还没有账号？<a href="/register.html">免费注册</a></p></section></main>
+<script>
+if(new URLSearchParams(location.search).has('registered'))document.querySelector('#registered').hidden=false;
+document.querySelector('#login-form').onsubmit=async event=>{
+  event.preventDefault();
+  const button=event.submitter,error=document.querySelector('#error');
+  error.textContent='';button.disabled=true;
+  try{
+    const data=Object.fromEntries(new FormData(event.target));
+    const r=await fetch('/api/customer/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const result=await r.json();
+    if(!r.ok)throw Error(result.error||'登录失败');
+    location.href='/orders.html';
+  }catch(e){error.textContent=e.message;}finally{button.disabled=false;}
+};</script></body></html>

@@ -1,0 +1,27 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>客户注册 · 拾物小店</title><link rel="stylesheet" href="/catalog.css"></head><body>
+<header><a class="brand" href="/">拾物小店 <small>CUSTOMER SIGN UP</small></a><a href="/customer-login.html">已有账号，去登录 ↗</a></header>
+<main class="login-main"><section class="panel"><p class="eyebrow">客户注册</p><h1>创建客户账号</h1><p class="muted">注册后即可登录并查看历史下单记录。注册成功后需手动登录。</p>
+<form id="register-form" class="stack">
+<label>用户名 *<input name="username" autocomplete="username" required maxlength="64"></label>
+<label>密码 *（不少于 8 位）<input name="password" type="password" autocomplete="new-password" required minlength="8"></label>
+<label>确认密码 *<input name="confirm" type="password" autocomplete="new-password" required minlength="8"></label>
+<label>电话 *<input name="phone" required maxlength="32"></label>
+<label>默认交易地点（选填，最多 200 字符）<input name="defaultPlace" maxlength="200"></label>
+<button>注册</button>
+<p id="error" role="alert" class="error"></p>
+</form><p class="muted">已有账号？<a href="/customer-login.html">前往登录</a></p></section></main>
+<script>document.querySelector('#register-form').onsubmit=async event=>{
+  event.preventDefault();
+  const form=event.target,error=document.querySelector('#error');
+  error.textContent='';
+  const data=Object.fromEntries(new FormData(form));
+  if(data.password!==data.confirm){error.textContent='两次输入的密码不一致';return;}
+  delete data.confirm;
+  const button=event.submitter;button.disabled=true;
+  try{
+    const r=await fetch('/api/customer/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const result=await r.json();
+    if(!r.ok)throw Error(result.error||'注册失败');
+    location.href='/customer-login.html?registered=1';
+  }catch(e){error.textContent=e.message;}finally{button.disabled=false;}
+};</script></body></html>

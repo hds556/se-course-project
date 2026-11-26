@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>模拟支付 · 拾物小店</title>
+  <link rel="stylesheet" href="/catalog.css">
+  <script src="/shop.js" defer></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">拾物小店 <small>PAYMENT</small></a>
+  <nav id="user-nav"></nav>
+</header>
+
+<main>
+  <section class="intro compact">
+    <p class="eyebrow">模拟支付</p>
+    <h1>选择支付渠道完成付款</h1>
+    <p>本页为模拟支付，不接入真实支付网关。支付完成后订单状态变为「已支付」；支付失败订单仍为「待支付」，可以重新发起。</p>
+  </section>
+
+  <section class="panel pay-panel">
+    <p id="notice" role="status" aria-live="polite" hidden></p>
+    <div id="content"><p class="muted">正在加载订单…</p></div>
+  </section>
+</main>
+
+<footer>拾物小店 · 模拟支付，不产生真实扣款</footer>
+
+<script>
+'use strict';
+const orderId = new URLSearchParams(location.search).get('orderId');
+let selected = null;
+
+/** 支付渠道卡片：四种渠道全支持，客户自选（BR-52） */
+function channelCards(channels, current) {
+  return channels.map(item => `
+    <button type="button" class="pay-channel" data-channel="${item.code}"
+            aria-pressed="${item.code === current}">
+      <span class="pay-channel-name">${esc(item.label)}</span>
+      <span class="pay-channel-code muted">${esc(item.code)}</span>
+    </button>`).join('');
+}
+
+function render(data) {
+  if (!data.payable) {
+    const reason = data.expired
+      ? '该订单已超过 24 小时支付时限，系统已自动取消并回补库存。'
+      : `订单当前为「${esc(data.statusLabel)}」，没有支付入口。`;
+    document.querySelector('#content').innerHTML = `<div class="empty">
+      <h2>该订单不可支付</h2>
+      <p>${reason}</p>
+      <p><a class="button-link" href="/orders.html">返回我的订单</a></p>
+    </div>`;
+    return;
+  }
+
+  selected = data.payChannel || null;
+  const remain = Number(data.remainingSeconds || 0);
+  const hours = Math.floor(remain / 3600);
+  const minutes = Math.floor((remain % 3600) / 60);
+  document.querySelector('#content').innerHTML = `
+    <div class="pay-summary">
+      <div><span class="muted">订单号</span><strong class="order-no">${esc(data.orderNo)}</strong></div>
+      <div><span class="muted">应付金额</span><strong class="money">${money(data.amountCents)}</strong></div>
+      <div><span class="muted">当前状态</span><strong>${esc(data.statusLabel)}</strong></div>
+      <div><span class="muted">支付截止</span><strong>${esc(fmtTime(data.deadline))}</strong>
+        <span class="muted">（剩余约 ${hours} 小时 ${minutes} 分）</span></div>
+    </div>
+
+    <h2 class="pay-heading">选择支付渠道</h2>
+    <div class="pay-channels" id="channels">${channelCards(data.channels, selected)}</div>
+    <p id="channel-hint" class="muted">请选择一种支付渠道后点击「支付」。</p>
+
+    <div class="actions pay-actions">
+      <button id="pay" type="button">确认支付 ${money(data.amountCents)}</button>
+      <button id="fail" type="button" class="secondary">模拟支付失败</button>
+      <a class="button-link secondary" href="/orders.html">返回我的订单</a>
+    </div>`;
+
+  document.querySelectorAll('[data-channel]').forEach(button => {
+    button.onclick = () => {
+      selected = button.dataset.channel;
+      document.querySelectorAll('[data-channel]').forEach(other =>
+        other.setAttribute('aria-pressed', String(other === button)));
+      document.querySelector('#channel-hint').textContent = '已选择支付渠道，可以点击「支付」了。';
+      setNotice('#notice', '');
+    };
+  });
+
+  document.querySelector('#pay').onclick = () => settle(true);
+  document.querySelector('#fail').onclick = () => settle(false);
+}
+
+/** 提交模拟支付结果。success=true 支付成功；false 支付失败（停留待支付，可重试） */
+async function settle(success) {
+  if (!selected) {
+    setNotice('#notice', '请先选择一种支付渠道', 'error');
+    return;
+  }
+  document.querySelectorAll('#content button').forEach(button => { button.disabled = true; });
+  try {
+    const result = await postJson(`/api/orders/${orderId}/pay`, { payChannel: selected, success });
+    if (success) {
+      renderResult(result);
+    } else {
+      // 支付失败：停留在支付页，可换渠道或重试（不设独立失败状态）
+      setNotice('#notice', result.message, 'warn');
+      document.querySelectorAll('#content button').forEach(button => { button.disabled = false; });
+    }
+  } catch (error) {
+    document.querySelectorAll('#content button').forEach(button => { button.disabled = false; });
+    setNotice('#notice', error.message, 'error');
+  }
+}
+
+/** 支付成功后的结果页：显示渠道、金额与后续动作 */
+function renderResult(result) {
+  document.querySelector('#notice').hidden = true;
+  document.querySelector('#content').innerHTML = `<div class="pay-result success">
+    <h2>支付成功</h2>
+    <p>订单 <span class="order-no">${esc(result.orderNo)}</span> 已由「${esc(result.payChannelLabel)}」支付
+      <strong class="money">${money(result.amountCents)}</strong>。</p>
+    <p class="muted">订单状态：${esc(result.statusLabel)}${result.idempotent
+      ? '（该订单此前已支付，本次未重复扣款）' : ''}。接下来等待卖家受理、备货与发货。</p>
+    <p><a class="button-link" href="/orders.html">返回我的订单查看状态</a></p>
+  </div>`;
+}
+
+async function load() {
+  if (!orderId) {
+    document.querySelector('#content').innerHTML =
+      '<div class="empty"><h2>缺少订单</h2><p>请从「我的订单」进入支付页。</p></div>';
+    return;
+  }
+  try {
+    render(await request(`/api/orders/${orderId}/payment`));
+  } catch (error) {
+    if (error.status === 401) { toLogin(); return; }
+    document.querySelector('#content').innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const me = await currentCustomer();
+  if (!me) { toLogin(); return; }
+  mountUserNav();
+  load();
+});
+</script>
+</body>
+</html>
