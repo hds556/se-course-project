@@ -1,0 +1,19 @@
+services:
+  shopping-system:
+    # 使用已导入的镜像（docker load -i shopping-system.tar），不再从源码构建
+    image: shopping-system:1.0.0
+    container_name: shopping-system
+    ports:
+      - "3000:3000"
+    volumes:
+      - shopping-data:/app/data
+      - shopping-uploads:/app/uploads
+    environment:
+      SHOP_HOST: 0.0.0.0
+      SHOP_PORT: 3000
+      # DEFAULT_SELLER_PASSWORD: change-me-1234
+    restart: unless-stopped
+
+volumes:
+  shopping-data:
+  shopping-uploads:

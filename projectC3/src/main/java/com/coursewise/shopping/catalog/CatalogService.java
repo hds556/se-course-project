@@ -1,0 +1,427 @@
+package com.coursewise.shopping.catalog;
+
+import com.coursewise.shopping.ShoppingService;
+import com.coursewise.shopping.ShopWriteTransaction;
+import com.coursewise.shopping.domain.*;
+import com.coursewise.shopping.repository.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.*;
+import org.jsoup.Jsoup;
+import org.jsoup.safety.Safelist;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
+
+import javax.imageio.ImageIO;
+import javax.imageio.stream.MemoryCacheImageInputStream;
+import jakarta.persistence.criteria.Predicate;
+import java.io.*;
+import java.math.BigDecimal;
+import java.nio.file.*;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.*;
+import java.util.function.Supplier;
+
+/** 商品目录、目录维护及卖家商品状态操作。 */
+@Service
+public class CatalogService {
+    private final ProductRepository products;
+    private final CategoryRepository categories;
+    private final ShoppingService auth;
+    private final ObjectMapper mapper;
+    private final Path uploads;
+    private final ShopWriteTransaction writes;
+    private final OrderItemRepository orderItems;
+
+    public CatalogService(ProductRepository products, CategoryRepository categories, ShoppingService auth,
+                          ObjectMapper mapper, ShopWriteTransaction writes, OrderItemRepository orderItems,
+                          @Value("${shopping.upload-dir}") String uploadDir) {
+        this.products = products; this.categories = categories; this.auth = auth; this.mapper = mapper;
+        uploads = Path.of(uploadDir).toAbsolutePath().normalize();
+        this.writes = writes;
+        this.orderItems = orderItems;
+    }
+
+    /** C-27 / FR-S-07：付款链路上的在途订单存在时，禁止调库存 0 与手动下架。 */
+    private void rejectPaidOrders(long productId, String action) {
+        long blocking = orderItems.countBlockingOrders(productId, EnumSet.of(
+                OrderStatus.paid, OrderStatus.confirmed, OrderStatus.packed));
+        if (blocking > 0) {
+            throw conflict("product", "存在已付款订单（" + blocking + " 笔），不能" + action
+                    + "；请待订单推进到「开始发货」或终结后再操作");
+        }
+    }
+
+    public record CategoryInput(String name, Long parentId) {}
+    public record EditInput(Integer stock, Long categoryId, Long version) {}
+
+    @Transactional(readOnly = true)
+    public ObjectNode list(String query, Long categoryId, int page, int size, boolean admin, String session) {
+        if (admin) auth.requireSession(session);
+        if (page < 1) throw bad("page", "页码必须大于等于 1");
+        if (size < 1 || size > 60) throw bad("size", "每页条数须为 1 至 60");
+        if (categoryId != null) requireLeaf(categoryId);
+        String keyword = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        Specification<ProductEntity> spec = (root, criteria, cb) -> {
+            List<Predicate> filters = new ArrayList<>();
+            filters.add(cb.isNotNull(root.get("categoryId")));
+            filters.add(cb.isNotNull(root.get("stock")));
+            filters.add(cb.equal(root.get("status"), ProductStatus.active));
+            filters.add(cb.greaterThan(root.get("stock"), 0L));
+            if (categoryId != null) filters.add(cb.equal(root.get("categoryId"), categoryId));
+            if (!keyword.isEmpty()) {
+                String like = "%" + keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+                filters.add(cb.or(cb.like(cb.lower(root.get("name")), like, '\\'),
+                        cb.like(cb.lower(root.get("descriptionText")), like, '\\')));
+            }
+            return cb.and(filters.toArray(Predicate[]::new));
+        };
+        Page<ProductEntity> found = products.findAll(spec, PageRequest.of(page - 1, size,
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))));
+        ArrayNode items = mapper.createArrayNode();
+        for (ProductEntity product : found) items.add(view(product, admin));
+        ObjectNode result = mapper.createObjectNode();
+        result.set("items", items);
+        result.put("page", page).put("size", size).put("total", found.getTotalElements())
+                .put("totalPages", found.getTotalPages());
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public ObjectNode detail(long id, boolean admin, String session) {
+        if (admin) auth.requireSession(session);
+        ProductEntity p = requireProduct(id);
+        if (!admin && (!p.isBuyable() || p.getStock() <= 0)) throw missing();
+        ObjectNode result = view(p, true);
+        result.put("readOnly", !p.isBuyable() || p.getStock() <= 0);
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public ArrayNode categoryTree() {
+        List<CategoryEntity> all = categories.findAllByOrderByIdAsc();
+        ArrayNode tree = mapper.createArrayNode();
+        for (CategoryEntity parent : all) {
+            if (parent.getParentId() != null) continue;
+            ObjectNode node = categoryView(parent);
+            ArrayNode children = mapper.createArrayNode();
+            all.stream().filter(c -> Objects.equals(c.getParentId(), parent.getId()))
+                    .forEach(c -> children.add(categoryView(c)));
+            node.set("children", children); tree.add(node);
+        }
+        return tree;
+    }
+
+    public ObjectNode addCategory(String session, CategoryInput input) {
+        auth.requireSession(session);
+        return write(() -> {
+            String name = categoryName(input.name());
+            if (input.parentId() != null && requireCategory(input.parentId()).getParentId() != null)
+                throw bad("parentId", "最多支持两级类别，请选择一级类别作为父类别");
+            CategoryEntity item = new CategoryEntity();
+            item.setName(name); item.setParentId(input.parentId());
+            return categoryView(categories.saveAndFlush(item));
+        });
+    }
+
+    public ObjectNode renameCategory(String session, long id, Map<String, Object> body) {
+        auth.requireSession(session);
+        return write(() -> {
+            if (!body.keySet().equals(Set.of("name"))) throw bad("name", "重命名只接受 name，不能更换类别归属");
+            CategoryEntity item = requireCategory(id);
+            item.setName(categoryName(body.get("name") instanceof String s ? s : null));
+            return categoryView(categories.saveAndFlush(item));
+        });
+    }
+
+    public void deleteCategory(String session, long id) {
+        auth.requireSession(session);
+        write(() -> {
+            requireCategory(id);
+            if (categories.existsByParentId(id)) throw conflict("categoryId", "请先删除下属二级类别");
+            if (products.existsByCategoryId(id)) throw conflict("categoryId", "类别下仍有商品，请先将商品改挂到其他二级类别");
+            categories.deleteById(id); categories.flush(); return null;
+        });
+    }
+
+    public ObjectNode publish(String session, String name, String price, Integer stock, Long categoryId,
+                              String description, List<MultipartFile> images) {
+        auth.requireSession(session);
+        return write(() -> {
+            String validName = productName(name);
+            long cents = priceCents(price);
+            if (stock == null || stock < 1) throw bad("stock", "发布库存必须为大于等于 1 的整数");
+            CategoryEntity category = requireLeaf(categoryId);
+            List<MultipartFile> files = images == null ? List.of() : images;
+            if (files.size() > 9) throw bad("images", "商品图片最多 9 张");
+            List<ImageData> checked = files.stream().map(this::validateImage).toList();
+            String html = cleanDescription(description);
+            ArrayNode paths = mapper.createArrayNode();
+            for (ImageData image : checked) paths.add(saveImage(image));
+            ProductEntity p = new ProductEntity();
+            p.setName(validName); p.setPriceCents(cents); p.setStock(stock); p.setCategoryId(category.getId());
+            p.setDescription(html); p.setDescriptionText(Jsoup.parse(html).text().toLowerCase(Locale.ROOT));
+            p.setImagesJson(paths.toString()); p.setImage(paths.isEmpty() ? "" : paths.get(0).asText());
+            p.setStatus(ProductStatus.active); p.setCreatedAt(Instant.now().toString());
+            return view(products.saveAndFlush(p), true);
+        });
+    }
+
+    /** 收藏权限由控制器验证；该入口只读，不改变商品状态。 */
+    @Transactional(readOnly = true)
+    public ObjectNode favoriteDetail(long id) {
+        ProductEntity p = requireProduct(id);
+        ObjectNode result = view(p, true);
+        result.put("readOnly", !p.isBuyable() || p.getStock() <= 0);
+        return result;
+    }
+
+    /** 商品内容编辑与库存状态维护隔离，订单快照不随商品内容变化。 */
+    public ObjectNode editContent(String session, long id, Long version, String name, String price,
+                                  Long categoryId, String description, List<String> retainedImages,
+                                  List<MultipartFile> images) {
+        auth.requireSession(session);
+        return write(() -> {
+            ProductEntity p = requireProduct(id);
+            if (!p.isBuyable() || p.getStock() <= 0) throw conflict("product", "已下架商品只读，不能编辑商品信息");
+            if (version == null || version != p.getVersion()) throw conflict("version", "商品已更新，请刷新后再编辑");
+            String validName = productName(name);
+            long cents = priceCents(price);
+            CategoryEntity category = requireLeaf(categoryId);
+            List<String> kept = retainedImages == null ? List.of() : retainedImages;
+            List<MultipartFile> added = images == null ? List.of() : images;
+            if (kept.size() + added.size() > 9) throw bad("images", "商品图片最多 9 张");
+            if (new HashSet<>(kept).size() != kept.size()) throw bad("images", "不能重复保留同一张图片");
+            try {
+                Set<String> original = new HashSet<>();
+                for (var image : mapper.readTree(p.getImagesJson() == null ? "[]" : p.getImagesJson())) original.add(image.asText());
+                if (!original.containsAll(kept)) throw bad("images", "只能保留本商品已有的图片");
+            } catch (IOException e) { throw new IllegalStateException(e); }
+            List<ImageData> checked = added.stream().map(this::validateImage).toList();
+            String html = cleanDescription(description);
+            ArrayNode paths = mapper.createArrayNode();
+            kept.forEach(paths::add);
+            checked.forEach(image -> paths.add(saveImage(image)));
+            p.setName(validName); p.setPriceCents(cents); p.setCategoryId(category.getId());
+            p.setDescription(html); p.setDescriptionText(Jsoup.parse(html).text().toLowerCase(Locale.ROOT));
+            p.setImagesJson(paths.toString()); p.setImage(paths.isEmpty() ? "" : paths.get(0).asText());
+            return view(products.saveAndFlush(p), true);
+        });
+    }
+
+    private String productName(String name) {
+        if (name == null || name.isBlank() || name.strip().codePointCount(0, name.strip().length()) > 128)
+            throw bad("name", "商品名称必填，最多 128 个字符");
+        return name.strip();
+    }
+    private long priceCents(String price) {
+        if (price == null || !price.matches("(?:0|[1-9]\\d{0,6})(?:\\.\\d{1,2})?"))
+            throw bad("price", "价格须大于 0 且不超过 9,999,999.99 元，最多两位小数");
+        long cents = new BigDecimal(price).movePointRight(2).longValueExact();
+        if (cents < 1 || cents > 999999999L) throw bad("price", "价格须大于 0 且不超过 9,999,999.99 元");
+        return cents;
+    }
+
+    public ObjectNode edit(String session, long id, EditInput input) {
+        auth.requireSession(session);
+        return write(() -> {
+            ProductEntity p = requireProduct(id);
+            if (input.version() == null) throw bad("version", "库存与类别编辑须提供商品版本");
+            verifyVersion(p, input.version());
+            CategoryEntity category = requireLeaf(input.categoryId());
+            if (!p.isBuyable() && !Objects.equals(p.getCategoryId(), category.getId()))
+                throw conflict("categoryId", "已下架商品不能更换类别");
+            if (input.stock() == null) throw bad("stock", "库存必须为非负整数");
+            changeStock(p, input.stock().longValue());
+            p.setCategoryId(category.getId());
+            return view(products.saveAndFlush(p), true);
+        });
+    }
+
+    public ObjectNode adjustStock(String session, long id, long stock, Long version) {
+        auth.requireSession(session);
+        return write(() -> {
+            ProductEntity product = requireProduct(id);
+            verifyVersion(product, version);
+            changeStock(product, stock);
+            return view(products.saveAndFlush(product), true);
+        });
+    }
+
+    public ObjectNode withdraw(String session, long id, Long version) {
+        auth.requireSession(session);
+        return write(() -> {
+            ProductEntity product = requireProduct(id);
+            verifyVersion(product, version);
+            if (!product.isBuyable()) throw conflict("product", "仅在售商品可以手动下架");
+            rejectPaidOrders(id, "手动下架");
+            product.setStatus(ProductStatus.withdrawn);
+            product.setOfflineAt(Instant.now().toString());
+            return view(products.saveAndFlush(product), true);
+        });
+    }
+
+    @Transactional(readOnly = true)
+    public ArrayNode offlineProducts(String session) {
+        auth.requireSession(session);
+        var offline = products.findByStatusIn(List.of(ProductStatus.depleted, ProductStatus.withdrawn));
+        var newestFirst = Comparator.comparing(
+                (ProductEntity product) -> parseOfflineTime(product.getOfflineAt()),
+                Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(ProductEntity::getId, Comparator.reverseOrder());
+        ArrayNode result = mapper.createArrayNode();
+        offline.stream().sorted(newestFirst).map(product -> view(product, true)).forEach(result::add);
+        return result;
+    }
+
+    private void changeStock(ProductEntity product, long stock) {
+        if (stock < 0) throw bad("stock", "库存必须为非负整数");
+        if (stock == 0 && product.getStatus() != ProductStatus.withdrawn) rejectPaidOrders(product.getId(), "将库存改为 0");
+        product.setStock(stock);
+        if (product.getStatus() == ProductStatus.withdrawn) return;
+        if (stock > 0) {
+            product.setStatus(ProductStatus.active);
+            product.setOfflineAt(null);
+        } else if (product.isBuyable()) {
+            product.setStatus(ProductStatus.depleted);
+            product.setOfflineAt(Instant.now().toString());
+        }
+    }
+
+    private void verifyVersion(ProductEntity product, Long version) {
+        if (version != null && version != product.getVersion())
+            throw conflict("version", "商品已更新，请刷新后重试");
+    }
+
+    private Instant parseOfflineTime(String value) {
+        try {
+            return value == null ? null : Instant.parse(value);
+        } catch (DateTimeParseException ignored) {
+            return null; // Legacy rows can lack a usable timestamp.
+        }
+    }
+
+    public ObjectNode uploadDescriptionImage(String session, MultipartFile file) {
+        auth.requireSession(session);
+        return write(() -> mapper.createObjectNode().put("url", saveImage(validateImage(file))));
+    }
+
+    private ObjectNode view(ProductEntity p, boolean full) {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("id", p.getId()).put("name", p.getName()).put("priceCents", p.getPriceCents());
+        node.put("image", p.getImage().isEmpty() ? "/placeholder.svg" : p.getImage());
+        if (p.getCategoryId() == null) {
+            node.putNull("category");
+        } else {
+            CategoryEntity leaf = requireCategory(p.getCategoryId());
+            ObjectNode category = categoryView(leaf);
+            category.put("parentName", requireCategory(leaf.getParentId()).getName());
+            node.set("category", category);
+        }
+        if (full) {
+            node.put("description", p.getDescription()).put("stock", p.getStock())
+                    .put("status", p.getStatus().code()).put("createdAt", p.getCreatedAt()).put("version", p.getVersion());
+            node.put("offlineAt", p.getOfflineAt());
+            node.put("offlineReason", switch (p.getStatus()) {
+                case active -> null;
+                case depleted -> "sold_out";
+                case withdrawn -> "manual";
+            });
+            try { node.set("images", mapper.readTree(p.getImagesJson() == null ? "[]" : p.getImagesJson())); }
+            catch (IOException e) { throw new IllegalStateException("商品图片数据异常", e); }
+        }
+        return node;
+    }
+
+    private String cleanDescription(String value) {
+        Safelist rules = new Safelist().addTags("p", "br", "div", "strong", "b", "em", "i", "u", "s",
+                "ul", "ol", "li", "h2", "h3", "blockquote", "img").addAttributes("img", "src", "alt");
+        var document = Jsoup.parseBodyFragment(Jsoup.clean(value == null ? "" : value, rules));
+        for (var img : document.select("img")) {
+            String src = img.attr("src");
+            if (!src.matches("/uploads/[a-f0-9-]+\\.(?:png|jpg)") || !Files.isRegularFile(uploads.resolve(src.substring(9))))
+                img.remove();
+        }
+        document.outputSettings().prettyPrint(false);
+        return document.body().html();
+    }
+
+    private ImageData validateImage(MultipartFile file) {
+        if (file == null || file.isEmpty() || file.getSize() > 5L * 1024 * 1024)
+            throw bad("images", "图片不能为空，单张不得超过 5MB");
+        String mime = file.getContentType();
+        String filename = Optional.ofNullable(file.getOriginalFilename()).orElse("").toLowerCase(Locale.ROOT);
+        boolean png = "image/png".equals(mime) && filename.endsWith(".png");
+        boolean jpg = "image/jpeg".equals(mime) && (filename.endsWith(".jpg") || filename.endsWith(".jpeg"));
+        if (!png && !jpg) throw bad("images", "仅支持 JPG/PNG 图片，请检查文件扩展名与类型");
+        try {
+            byte[] bytes = file.getBytes();
+            try (var stream = new MemoryCacheImageInputStream(new ByteArrayInputStream(bytes))) {
+                var readers = ImageIO.getImageReaders(stream);
+                if (!readers.hasNext()) throw new IOException();
+                var reader = readers.next();
+                try {
+                    String format = reader.getFormatName();
+                    if (!(png ? format.equalsIgnoreCase("png") : format.equalsIgnoreCase("jpeg"))) throw new IOException();
+                    reader.setInput(stream); if (reader.read(0) == null) throw new IOException();
+                } finally { reader.dispose(); }
+            }
+            return new ImageData(bytes, png ? ".png" : ".jpg");
+        } catch (IOException e) { throw bad("images", "图片内容损坏或实际格式不是 JPG/PNG"); }
+    }
+
+    private String saveImage(ImageData image) {
+        String filename = UUID.randomUUID() + image.extension();
+        Path target = uploads.resolve(filename);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    try { Files.deleteIfExists(target); } catch (IOException e) {
+                        org.slf4j.LoggerFactory.getLogger(CatalogService.class).warn("回滚图片清理失败 {}", target, e);
+                    }
+                }
+            }
+        });
+        try { Files.write(target, image.bytes(), StandardOpenOption.CREATE_NEW); }
+        catch (IOException e) { throw new IllegalStateException("图片保存失败", e); }
+        return "/uploads/" + filename;
+    }
+
+    private <T> T write(Supplier<T> action) {
+        return writes.execute(action);
+    }
+    private ProductEntity requireProduct(long id) {
+        ProductEntity p = products.findById(id).orElseThrow(this::missing);
+        if (p.getCategoryId() == null || p.getStock() == null) throw missing();
+        return p;
+    }
+    private CategoryEntity requireCategory(Long id) {
+        if (id == null) throw bad("categoryId", "请选择二级类别");
+        return categories.findById(id).orElseThrow(() -> bad("categoryId", "类别不存在"));
+    }
+    private CategoryEntity requireLeaf(Long id) {
+        CategoryEntity category = requireCategory(id);
+        if (category.getParentId() == null) throw bad("categoryId", "商品必须归属二级类别");
+        return category;
+    }
+    private String categoryName(String value) {
+        if (value == null || value.isBlank()) throw bad("name", "类别名称不能为空");
+        return value.strip();
+    }
+    private ObjectNode categoryView(CategoryEntity c) {
+        ObjectNode node = mapper.createObjectNode().put("id", c.getId()).put("name", c.getName());
+        if (c.getParentId() == null) node.putNull("parentId"); else node.put("parentId", c.getParentId());
+        return node;
+    }
+    private CatalogException bad(String field, String message) { return new CatalogException(HttpStatus.BAD_REQUEST, field, message); }
+    private CatalogException conflict(String field, String message) { return new CatalogException(HttpStatus.CONFLICT, field, message); }
+    private CatalogException missing() { return new CatalogException(HttpStatus.NOT_FOUND, "product", "商品不存在或已下架"); }
+    private record ImageData(byte[] bytes, String extension) {}
+}
